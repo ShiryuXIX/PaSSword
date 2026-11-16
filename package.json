@@ -1,0 +1,54 @@
+{
+  "name": "boveda-segura",
+  "version": "0.2.1",
+  "private": true,
+  "type": "module",
+  "main": "desktop/main.cjs",
+  "scripts": {
+    "desktop:bundle": "node desktop/build.cjs",
+    "desktop:dev": "npm run desktop:bundle && electron .",
+    "desktop:build": "npm run desktop:bundle && electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "electron": "^45.2.2",
+    "electron-builder": "^26.18.0",
+    "esbuild": "^0.28.2",
+    "firebase": "13.1.0"
+  },
+  "overrides": {
+    "@grpc/grpc-js": "^1.14.6"
+  },
+  "build": {
+    "appId": "app.password.desktop",
+    "productName": "PaSSword",
+    "asar": true,
+    "files": [
+      "desktop/**",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist/desktop"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "ShiryuXIX",
+      "repo": "PaSSword",
+      "releaseType": "release"
+    },
+    "win": {
+      "icon": "desktop/app.ico",
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "installerIcon": "desktop/app.ico",
+      "uninstallerIcon": "desktop/app.ico"
+    }
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
+  }
+}

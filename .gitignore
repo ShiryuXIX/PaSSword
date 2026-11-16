@@ -1,0 +1,22 @@
+# Credenciales y secretos locales
+desktop/ui/.env
+.env
+.env.*
+!.env.example
+
+# Firebase CLI y archivos locales
+.firebase/
+firebase-debug.log
+firestore-debug.log
+dist/
+
+# Android y firmas
+**/node_modules/
+**/build/
+desktop/generated/
+**/.gradle/
+**/*.keystore
+**/*.jks
+**/*.apk
+**/*.aab
+**/key.properties

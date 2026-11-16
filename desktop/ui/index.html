@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PaSSword</title>
+    <link rel="icon" href="./assets/icon-192.png" type="image/png" sizes="192x192">
+    <link rel="stylesheet" href="./styles.css">
+    <script type="importmap">
+      {
+        "imports": {
+          "firebase/app": "https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js",
+          "firebase/auth": "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js",
+          "firebase/firestore": "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js"
+        }
+      }
+    </script>
+    <script type="module" src="./app.js"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <main class="main-content">
+        <header class="topbar">
+          <div class="brand" role="img" aria-label="PaSSword">
+            <span class="brand-mark" aria-hidden="true">
+              <img src="./assets/brand-logo.png" alt="">
+            </span>
+            <span class="brand-name">PaSSword<span>.</span></span>
+          </div>
+          <div class="account-actions" id="account-actions" hidden>
+            <span class="avatar" id="account-avatar" role="img" aria-label="Cuenta conectada"></span>
+            <details class="account-menu">
+              <summary aria-label="Opciones de cuenta">
+                <span class="account-menu-label">Cuenta</span>
+                <span class="account-menu-icon" aria-hidden="true">•••</span>
+              </summary>
+              <div class="account-menu-list">
+                <button class="text-button" id="change-pin" type="button" hidden>
+                  <svg viewBox="0 0 20 20" aria-hidden="true">
+                    <rect x="4" y="8.5" width="12" height="9" rx="1.8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                    <path d="M6.5 8.5V6a3.5 3.5 0 0 1 7 0v2.5M10 12v2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                  </svg>
+                  Cambiar PIN
+                </button>
+                <button class="text-button" id="configure-biometric" type="button" hidden>
+                  <svg viewBox="0 0 20 20" aria-hidden="true">
+                    <path d="M3.3 8.2a6.7 6.7 0 0 1 13.4 0v1.1M5.2 8.2a4.8 4.8 0 0 1 9.6 0v3.1a4.8 4.8 0 0 1-1.6 3.6M7.1 8.2a2.9 2.9 0 0 1 5.8 0v4.1a2.9 2.9 0 0 1-2.9 2.9M9 8.2v4.1a1 1 0 0 0 1 1M5.3 11.2v1.1a6.7 6.7 0 0 0 3.2 5.7M3.3 11.1v1.2a8.6 8.6 0 0 0 2.1 5.7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  <span id="configure-biometric-label">Configurar desbloqueo del dispositivo</span>
+                </button>
+                <button class="text-button" id="forget-device-key" type="button" hidden>
+                  <svg viewBox="0 0 20 20" aria-hidden="true">
+                    <rect x="4.5" y="2.5" width="11" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                    <path d="M8 14.5h4M3 3l14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                  </svg>
+                  Olvidar este dispositivo
+                </button>
+                <button class="text-button" id="sign-out" type="button">
+                  <svg viewBox="0 0 20 20" aria-hidden="true">
+                    <path d="M8 3.5H4.5v13H8m3-3 3.5-3.5L11 6.5m4.5 3.5H7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  Cerrar sesión
+                </button>
+              </div>
+            </details>
+          </div>
+        </header>
+
+        <section class="auth-gate" id="auth-gate" aria-labelledby="auth-title">
+          <div class="auth-card">
+            <div class="auth-brand" aria-hidden="true">
+              <img src="./assets/brand-logo.png" alt="">
+            </div>
+            <h1 id="auth-title">PaSSword</h1>
+            <button class="button button-primary google-button" id="google-sign-in" type="button" disabled>
+              <svg viewBox="0 0 20 20" aria-hidden="true">
+                <path fill="#4285F4" d="M19.6 10.23c0-.68-.06-1.36-.18-2H10v3.79h5.4a4.62 4.62 0 0 1-2 3.03v2.47h3.23c1.9-1.75 2.97-4.33 2.97-7.29Z"/>
+                <path fill="#34A853" d="M10 20c2.7 0 4.96-.9 6.62-2.48l-3.23-2.47c-.9.61-2.04.98-3.39.98-2.6 0-4.8-1.75-5.59-4.1H1.08v2.55A10 10 0 0 0 10 20Z"/>
+                <path fill="#FBBC05" d="M4.41 11.93a6 6 0 0 1 0-3.86V5.52H1.08a10 10 0 0 0 0 8.96l3.33-2.55Z"/>
+                <path fill="#EA4335" d="M10 3.97c1.47 0 2.79.51 3.82 1.52l2.86-2.86C14.95.99 12.7 0 10 0a10 10 0 0 0-8.92 5.52l3.33 2.55C5.2 5.72 7.4 3.97 10 3.97Z"/>
+              </svg>
+              <span>Continuar con Google</span>
+            </button>
+            <p class="auth-message" id="auth-message" role="alert" hidden></p>
+            <div class="auth-diagnostic-actions" id="auth-diagnostic-actions" hidden>
+              <button class="button button-quiet auth-diagnostic-button" id="open-auth-diagnostics" type="button">
+                Abrir registro del error
+              </button>
+              <p class="auth-diagnostic-note">
+                El registro solo guarda la fecha y el código del error; no incluye tu cuenta ni tokens.
+              </p>
+            </div>
+
+            <form class="vault-form" id="vault-form" hidden>
+              <div class="vault-form-heading">
+                <h2 id="vault-form-title">Desbloquea PaSSword</h2>
+                <p id="vault-form-description"></p>
+              </div>
+              <label class="field" id="master-password-field">
+                <span>Clave de recuperación</span>
+                <input id="master-password" type="password" required minlength="12" maxlength="1024" autocomplete="current-password" spellcheck="false">
+              </label>
+              <label class="field" id="master-confirm-field" hidden>
+                <span>Repite la clave de recuperación</span>
+                <input id="master-password-confirm" type="password" required minlength="12" maxlength="1024" autocomplete="new-password" spellcheck="false">
+              </label>
+              <label class="field" id="pin-field" hidden>
+                <span id="pin-label">PIN de 4 cifras</span>
+                <input id="pin-input" type="password" inputmode="numeric" pattern="[0-9]{4}" required maxlength="4" autocomplete="one-time-code" spellcheck="false">
+              </label>
+              <label class="field" id="pin-confirm-field" hidden>
+                <span>Repite el PIN</span>
+                <input id="pin-confirm-input" type="password" inputmode="numeric" pattern="[0-9]{4}" required maxlength="4" autocomplete="one-time-code" spellcheck="false">
+              </label>
+              <label class="biometric-option" id="biometric-option" hidden>
+                <input id="enable-biometric" type="checkbox">
+                <span>
+                  <strong>Activar desbloqueo del dispositivo</strong>
+                  <small>Usa huella, rostro o el bloqueo de pantalla. La clave de recuperación seguirá disponible para equipos nuevos.</small>
+                </span>
+              </label>
+              <p class="master-password-note" id="master-password-note">
+                Usa una frase larga y única. Google no puede restablecer esta contraseña.
+              </p>
+              <p class="master-password-note" id="pin-note" hidden>
+                Este PIN protege PaSSword en este PC. En un equipo nuevo necesitarás la clave de recuperación.
+              </p>
+              <button class="button button-primary vault-submit" id="vault-submit" type="submit">Desbloquear</button>
+              <button class="text-button pin-recovery-button" id="pin-recovery" type="button" hidden>
+                He olvidado mi PIN
+              </button>
+              <button class="button button-quiet biometric-unlock" id="biometric-unlock" type="button" hidden>
+                Desbloquear con el dispositivo
+              </button>
+            </form>
+          </div>
+        </section>
+
+        <section class="workspace" id="workspace" aria-labelledby="page-title" hidden>
+          <div class="page-heading">
+            <h1 id="page-title">Accesos</h1>
+            <button class="button button-primary" id="add-credential" type="button">
+              <svg viewBox="0 0 20 20" aria-hidden="true">
+                <path d="M10 4v12M4 10h12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              </svg>
+              <span>Añadir acceso</span>
+            </button>
+          </div>
+
+          <div class="list-toolbar">
+            <label class="search-box">
+              <svg viewBox="0 0 20 20" aria-hidden="true">
+                <circle cx="8.8" cy="8.8" r="5.8" fill="none" stroke="currentColor" stroke-width="1.6"/>
+                <path d="m13.2 13.2 4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+              </svg>
+              <span class="visually-hidden">Buscar accesos</span>
+              <input id="search-input" type="search" placeholder="Buscar un sitio" autocomplete="off">
+              <kbd>/</kbd>
+            </label>
+          </div>
+
+          <div class="content-grid">
+            <section class="credential-list" id="credential-list" aria-label="Lista de accesos">
+              <div class="empty-state" id="empty-state">
+                <p>No hay accesos guardados.</p>
+              </div>
+              <ul class="credential-items" id="credential-items" hidden></ul>
+            </section>
+
+            <aside class="detail-panel" id="detail-panel" aria-label="Detalle del acceso">
+              <button class="button button-secondary detail-back" id="detail-back" type="button">
+                <svg viewBox="0 0 20 20" aria-hidden="true">
+                  <path d="m11.8 4.5-5.5 5.5 5.5 5.5M6.8 10h8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <span>Volver a los accesos</span>
+              </button>
+              <div class="detail-placeholder" id="detail-placeholder">
+                <span class="placeholder-mark" aria-hidden="true">↙</span>
+                <h3>Elige un acceso</h3>
+                <p>Sus detalles aparecerán aquí.</p>
+              </div>
+              <article class="credential-detail" id="credential-detail" hidden></article>
+            </aside>
+          </div>
+        </section>
+
+        <footer class="page-footer">
+          <span class="version-label" id="version-label">PaSSword v19</span>
+          <div class="footer-statuses">
+            <div class="connection-status" role="status">
+              <span class="status-icon" aria-hidden="true">
+                <svg viewBox="0 0 20 20" fill="none">
+                  <path d="M10 2.5 16 5v4.3c0 3.5-2.5 6-6 7.5-3.5-1.5-6-4-6-7.5V5l6-2.5Z" stroke="currentColor" stroke-width="1.5"/>
+                  <path d="M7.5 9.8 9.2 11.5l3.5-3.7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </span>
+              <span id="connection-label">Preparando conexión segura…</span>
+            </div>
+            <div class="security-status" id="security-status" role="status" hidden>
+              <span class="security-dot" aria-hidden="true"></span>
+              <span>Cifrado activo</span>
+            </div>
+          </div>
+        </footer>
+      </main>
+    </div>
+
+    <dialog class="credential-dialog" id="credential-dialog" aria-labelledby="dialog-title">
+      <div class="dialog-heading">
+        <div>
+          <h2 id="dialog-title">Añadir acceso</h2>
+        </div>
+        <button class="icon-button close-dialog" type="button" aria-label="Cerrar">
+          <svg viewBox="0 0 20 20" aria-hidden="true">
+            <path d="m5 5 10 10M15 5 5 15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
+
+      <form id="credential-form">
+        <input id="credential-id" type="hidden">
+        <label class="field">
+          <span>Nombre</span>
+          <input id="site-input" name="site" type="text" required maxlength="160" autocomplete="url" placeholder="ejemplo.com">
+        </label>
+        <label class="field">
+          <span>Email o usuario</span>
+          <input id="email-input" name="email" type="text" required maxlength="254" autocomplete="username" placeholder="Email o nombre de usuario">
+        </label>
+        <label class="field">
+          <span>Contraseña</span>
+          <span class="password-entry">
+            <input id="password-input" name="password" type="password" required maxlength="1024" autocomplete="new-password" spellcheck="false">
+            <button class="text-button password-visibility" id="toggle-password-visibility" type="button" aria-label="Ver contraseña" aria-pressed="false" title="Ver contraseña">
+              <svg viewBox="0 0 20 20" aria-hidden="true">
+                <path d="M2.5 10s2.7-5 7.5-5 7.5 5 7.5 5-2.7 5-7.5 5-7.5-5-7.5-5Z" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                <circle cx="10" cy="10" r="2" fill="none" stroke="currentColor" stroke-width="1.5"/>
+              </svg>
+              <span>Ver</span>
+            </button>
+            <button class="text-button generate-password" id="generate-password" type="button">
+              <svg viewBox="0 0 20 20" aria-hidden="true">
+                <path d="m11.4 1.8-8 9.3h5.3l-.2 7.1 8.1-9.8h-5.2V1.8Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span>Generar</span>
+            </button>
+          </span>
+        </label>
+        <p class="form-error" id="form-error" role="alert" hidden></p>
+
+        <div class="dialog-actions">
+          <button class="button button-danger close-dialog" type="button">Cancelar</button>
+          <button class="button button-primary" id="save-credential" type="submit">Guardar acceso</button>
+        </div>
+      </form>
+
+      <form id="master-password-form" hidden>
+        <p class="master-password-note">
+          Necesitas conexión y PaSSword sincronizado. Se recifrarán hasta 249 accesos en una operación
+          y cada uno recibirá una ID nueva. Si algo falla, no se aplicará ningún cambio.
+        </p>
+        <label class="field">
+          <span>Contraseña actual</span>
+          <input id="current-master-password" type="password" required minlength="12" maxlength="1024" autocomplete="current-password" spellcheck="false">
+        </label>
+        <label class="field">
+          <span>Nueva clave de recuperación</span>
+          <input id="new-master-password" type="password" required minlength="12" maxlength="1024" autocomplete="new-password" spellcheck="false">
+        </label>
+        <label class="field">
+          <span>Repite la nueva clave de recuperación</span>
+          <input id="confirm-master-password" type="password" required minlength="12" maxlength="1024" autocomplete="new-password" spellcheck="false">
+        </label>
+        <p class="form-error" id="master-password-error" role="alert" hidden></p>
+        <div class="dialog-actions">
+          <button class="button button-quiet close-dialog" type="button">Cancelar</button>
+          <button class="button button-primary" id="confirm-master-password-change" type="submit">
+            Cambiar contraseña
+          </button>
+        </div>
+      </form>
+
+      <form id="biometric-setup-form" hidden>
+        <p class="master-password-note">
+          Confirma la clave de recuperación para proteger la llave local de PaSSword. Google seguirá identificando tu cuenta.
+        </p>
+        <label class="field">
+          <span>Contraseña maestra</span>
+          <input id="biometric-master-password" type="password" required minlength="12" maxlength="1024" autocomplete="current-password" spellcheck="false">
+        </label>
+        <p class="form-error" id="biometric-setup-error" role="alert" hidden></p>
+        <div class="dialog-actions">
+          <button class="button button-quiet close-dialog" type="button">Cancelar</button>
+          <button class="button button-primary" id="confirm-biometric-setup" type="submit">
+            Activar desbloqueo
+          </button>
+        </div>
+      </form>
+
+      <form id="pin-settings-form" hidden>
+        <p class="master-password-note">
+          El PIN solo protege el acceso a PaSSword en este PC. Guárdalo en un lugar seguro.
+        </p>
+        <label class="field">
+          <span>PIN actual</span>
+          <input id="current-pin-input" type="password" inputmode="numeric" pattern="[0-9]{4}" required maxlength="4" autocomplete="current-password" spellcheck="false">
+        </label>
+        <label class="field">
+          <span>Nuevo PIN de 4 cifras</span>
+          <input id="new-pin-input" type="password" inputmode="numeric" pattern="[0-9]{4}" required maxlength="4" autocomplete="new-password" spellcheck="false">
+        </label>
+        <label class="field">
+          <span>Repite el nuevo PIN</span>
+          <input id="confirm-pin-input" type="password" inputmode="numeric" pattern="[0-9]{4}" required maxlength="4" autocomplete="new-password" spellcheck="false">
+        </label>
+        <p class="form-error" id="pin-settings-error" role="alert" hidden></p>
+        <div class="dialog-actions">
+          <button class="button button-quiet close-dialog" type="button">Cancelar</button>
+          <button class="button button-primary" id="save-pin" type="submit">Guardar PIN</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+  </body>
+</html>

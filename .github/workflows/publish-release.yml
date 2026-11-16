@@ -1,0 +1,288 @@
+name: Publicar PaSSword
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: password-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Configurar Java para Android
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Configurar Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Comprobar versiones
+        id: versions
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repository = 'ShiryuXIX/PaSSword'
+          $desktopVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($desktopVersion -notmatch '^\d+\.\d+\.\d+$') {
+            throw 'La versión de package.json debe tener el formato X.Y.Z.'
+          }
+
+          $pubspec = Get-Content mobile\pubspec.yaml -Raw
+          $versionMatch = [regex]::Match(
+            $pubspec,
+            '(?m)^version:\s*(\d+\.\d+\.\d+)\+(\d+)\s*$'
+          )
+          if (-not $versionMatch.Success) {
+            throw 'La versión móvil debe tener el formato X.Y.Z+N en mobile\pubspec.yaml.'
+          }
+          $androidVersion = $versionMatch.Groups[1].Value
+          $androidBuild = [int]$versionMatch.Groups[2].Value
+          $releaseTag = "v$desktopVersion-android-$androidBuild"
+
+          $releaseListJson = & gh release list --repo $repository --limit 100 --json tagName,isLatest
+          if ($LASTEXITCODE -ne 0) {
+            throw "No se pudo consultar la última Release de $repository."
+          }
+          $releases = @()
+          if (-not [string]::IsNullOrWhiteSpace(($releaseListJson -join ''))) {
+            $releases = @(($releaseListJson -join "`n") | ConvertFrom-Json)
+          }
+          $latestRelease = $releases |
+            Where-Object { $_ -and $_.isLatest } |
+            Select-Object -First 1
+          $latestTag = if ($latestRelease) { [string]$latestRelease.tagName } else { '' }
+
+          $previousDesktopVersion = [version]'0.2.0'
+          $previousAndroidVersion = [version]'1.1.0'
+          $previousAndroidBuild = 2
+          $hasPreviousRelease = $false
+          if (-not [string]::IsNullOrWhiteSpace(($latestTag -join ''))) {
+            $hasPreviousRelease = $true
+            $baseline = Join-Path $env:RUNNER_TEMP 'password-release-baseline'
+            New-Item -ItemType Directory -Force -Path $baseline | Out-Null
+            & gh release download $latestTag --repo $repository --pattern latest.yml --pattern android-update.json --dir $baseline
+            if ($LASTEXITCODE -ne 0) {
+              throw "No se pudieron leer las versiones de la última Release ($latestTag)."
+            }
+
+            $latestYaml = Get-Content (Join-Path $baseline 'latest.yml') -Raw
+            $desktopMatch = [regex]::Match($latestYaml, '(?m)^version:\s*(\d+\.\d+\.\d+)\s*$')
+            $androidManifest = Get-Content (Join-Path $baseline 'android-update.json') -Raw | ConvertFrom-Json
+            if (-not $desktopMatch.Success -or $null -eq $androidManifest.buildNumber) {
+              throw 'La última Release no contiene metadatos de versión válidos.'
+            }
+            $previousDesktopVersion = [version]$desktopMatch.Groups[1].Value
+            $previousAndroidVersion = [version]$androidManifest.version
+            $previousAndroidBuild = [int]$androidManifest.buildNumber
+          }
+
+          if (
+            [version]$desktopVersion -lt $previousDesktopVersion -or
+            [version]$androidVersion -lt $previousAndroidVersion -or
+            $androidBuild -lt $previousAndroidBuild
+          ) {
+            throw 'No se puede publicar una versión anterior a la ya publicada.'
+          }
+
+          if ($hasPreviousRelease) {
+            $changedFiles = @(& git diff --name-only "$latestTag..HEAD")
+            if ($LASTEXITCODE -ne 0) {
+              throw "No se pudieron comparar los cambios con la Release $latestTag."
+            }
+            $desktopChanged = @($changedFiles | Where-Object {
+              $_ -match '^desktop/' -and $_ -ne 'desktop/README.md' -or
+              $_ -match '^(package\.json|package-lock\.json)$'
+            }).Count -gt 0
+            $androidChanged = @($changedFiles | Where-Object {
+              $_ -match '^mobile/(lib/|android/|assets/|pubspec\.(yaml|lock)$)'
+            }).Count -gt 0
+          }
+          else {
+            $desktopChanged = $true
+            $androidChanged = $true
+          }
+
+          $desktopChanged = $desktopChanged -or ([version]$desktopVersion -gt $previousDesktopVersion)
+          $androidChanged = $androidChanged -or
+            ([version]$androidVersion -gt $previousAndroidVersion) -or
+            ($androidBuild -gt $previousAndroidBuild)
+          if (-not $desktopChanged -and -not $androidChanged) {
+            "publish=false" >> $env:GITHUB_OUTPUT
+            Write-Output 'No hay cambios de cliente ni versiones nuevas; no se publicará una Release.'
+            exit 0
+          }
+          if ($desktopChanged -and [version]$desktopVersion -le $previousDesktopVersion) {
+            throw 'Aumenta package.json version antes de publicar cambios de escritorio.'
+          }
+          if ($androidChanged -and $androidBuild -le $previousAndroidBuild) {
+            throw 'Aumenta el código X.Y.Z+N de mobile/pubspec.yaml antes de publicar cambios Android.'
+          }
+
+          if ($releases | Where-Object { $_.tagName -eq $releaseTag }) {
+            throw "La Release $releaseTag ya existe; aumenta la versión del cliente que cambió."
+          }
+
+          "publish=true" >> $env:GITHUB_OUTPUT
+          "desktop_version=$desktopVersion" >> $env:GITHUB_OUTPUT
+          "android_version=$androidVersion" >> $env:GITHUB_OUTPUT
+          "android_build=$androidBuild" >> $env:GITHUB_OUTPUT
+          "release_tag=$releaseTag" >> $env:GITHUB_OUTPUT
+
+      - name: Instalar dependencias de escritorio
+        if: steps.versions.outputs.publish == 'true'
+        run: npm ci
+
+      - name: Analizar y probar Android
+        if: steps.versions.outputs.publish == 'true'
+        working-directory: mobile
+        run: |
+          flutter pub get
+          dart analyze lib test
+          flutter test
+
+      - name: Crear instalador de Windows
+        if: steps.versions.outputs.publish == 'true'
+        run: npm run desktop:build -- --publish never
+
+      - name: Firmar y compilar APK
+        if: steps.versions.outputs.publish == 'true'
+        shell: pwsh
+        env:
+          BOVEDA_ANDROID_KEYSTORE_BASE64: ${{ secrets.BOVEDA_ANDROID_KEYSTORE_BASE64 }}
+          BOVEDA_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.BOVEDA_ANDROID_KEYSTORE_PASSWORD }}
+          BOVEDA_ANDROID_KEY_ALIAS: ${{ secrets.BOVEDA_ANDROID_KEY_ALIAS }}
+          BOVEDA_ANDROID_KEY_PASSWORD: ${{ secrets.BOVEDA_ANDROID_KEY_PASSWORD }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($name in @(
+            'BOVEDA_ANDROID_KEYSTORE_BASE64',
+            'BOVEDA_ANDROID_KEYSTORE_PASSWORD',
+            'BOVEDA_ANDROID_KEY_ALIAS',
+            'BOVEDA_ANDROID_KEY_PASSWORD'
+          )) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "Falta el secreto de GitHub $name. Consulta mobile\README.md."
+            }
+          }
+
+          $keystorePath = Join-Path $env:RUNNER_TEMP 'password-app-flutter.jks'
+          try {
+            $keystoreBytes = [Convert]::FromBase64String($env:BOVEDA_ANDROID_KEYSTORE_BASE64)
+            [IO.File]::WriteAllBytes($keystorePath, $keystoreBytes)
+            $env:BOVEDA_ANDROID_KEYSTORE = $keystorePath
+            flutter build apk --release `
+              --build-name '${{ steps.versions.outputs.android_version }}' `
+              --build-number '${{ steps.versions.outputs.android_build }}' `
+              --dart-define=FIREBASE_ANDROID_APP_ID=1:899324045825:android:ebd3680a4801d2b32fae00 `
+              --dart-define=GOOGLE_SERVER_CLIENT_ID=899324045825-s28q0rrt4nlfjoptja33boggf0a1etfb.apps.googleusercontent.com
+            if ($LASTEXITCODE -ne 0) {
+              throw "La compilación Flutter terminó con el código $LASTEXITCODE."
+            }
+
+            $apkPath = 'mobile\build\app\outputs\flutter-apk\app-release.apk'
+            $buildTools = Get-ChildItem "$env:ANDROID_SDK_ROOT\build-tools" -Directory |
+              Sort-Object Name -Descending |
+              Where-Object {
+                (Test-Path (Join-Path $_.FullName 'apksigner.bat')) -and
+                (Test-Path (Join-Path $_.FullName 'aapt.exe'))
+              } |
+              Select-Object -First 1
+            if (-not $buildTools) {
+              throw 'No se encontraron apksigner y aapt en Android SDK Build Tools.'
+            }
+
+            $signature = & (Join-Path $buildTools.FullName 'apksigner.bat') verify --print-certs $apkPath 2>&1
+            if ($LASTEXITCODE -ne 0) {
+              throw "La firma de la APK no es válida: $($signature -join ' ')"
+            }
+            $packageInfo = & (Join-Path $buildTools.FullName 'aapt.exe') dump badging $apkPath 2>&1
+            if ($LASTEXITCODE -ne 0 -or $packageInfo[0] -notmatch "package: name='password\.app\.flutter'") {
+              throw 'La APK no tiene el identificador de producción password.app.flutter.'
+            }
+
+            Copy-Item $apkPath 'mobile\PaSSword-Android.apk' -Force
+            $manifest = [ordered]@{
+              version = '${{ steps.versions.outputs.android_version }}'
+              buildNumber = [int]'${{ steps.versions.outputs.android_build }}'
+              releaseNotes = 'Actualización de PaSSword para Android.'
+            } | ConvertTo-Json
+            [IO.File]::WriteAllText(
+              'mobile\android-update.json',
+              $manifest,
+              [System.Text.UTF8Encoding]::new($false)
+            )
+          }
+          finally {
+            Remove-Item -LiteralPath $keystorePath -Force -ErrorAction SilentlyContinue
+            Remove-Item Env:BOVEDA_ANDROID_KEYSTORE -ErrorAction SilentlyContinue
+            Remove-Item Env:BOVEDA_ANDROID_KEYSTORE_BASE64 -ErrorAction SilentlyContinue
+            Remove-Item Env:BOVEDA_ANDROID_KEYSTORE_PASSWORD -ErrorAction SilentlyContinue
+            Remove-Item Env:BOVEDA_ANDROID_KEY_ALIAS -ErrorAction SilentlyContinue
+            Remove-Item Env:BOVEDA_ANDROID_KEY_PASSWORD -ErrorAction SilentlyContinue
+          }
+
+      - name: Publicar Release
+        if: steps.versions.outputs.publish == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $desktopAssets = @(
+            Get-ChildItem dist\desktop -File |
+              Where-Object {
+                $_.Name -eq 'latest.yml' -or
+                $_.Extension -eq '.exe' -or
+                $_.Name.EndsWith('.exe.blockmap')
+              }
+          )
+          if (-not ($desktopAssets | Where-Object Name -eq 'latest.yml')) {
+            throw 'No se generó latest.yml para las actualizaciones de Windows.'
+          }
+          if (-not ($desktopAssets | Where-Object Extension -eq '.exe')) {
+            throw 'No se generó el instalador de Windows.'
+          }
+
+          $assets = @(
+            $desktopAssets.FullName
+            'mobile\PaSSword-Android.apk'
+            'mobile\android-update.json'
+          )
+          if ($assets | Where-Object { -not (Test-Path -LiteralPath $_ -PathType Leaf) }) {
+            throw 'Falta un instalador o metadatos requeridos para la Release.'
+          }
+
+          & gh release create '${{ steps.versions.outputs.release_tag }}' @assets `
+            --repo ShiryuXIX/PaSSword `
+            --title 'PaSSword ${{ steps.versions.outputs.desktop_version }} / Android ${{ steps.versions.outputs.android_version }}+${{ steps.versions.outputs.android_build }}' `
+            --notes 'Actualización de PaSSword para Windows y Android.' `
+            --latest
+          if ($LASTEXITCODE -ne 0) {
+            throw 'No se pudo crear la Release en GitHub.'
+          }

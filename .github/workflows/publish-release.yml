@@ -178,6 +178,10 @@ jobs:
           BOVEDA_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.BOVEDA_ANDROID_KEYSTORE_PASSWORD }}
           BOVEDA_ANDROID_KEY_ALIAS: ${{ secrets.BOVEDA_ANDROID_KEY_ALIAS }}
           BOVEDA_ANDROID_KEY_PASSWORD: ${{ secrets.BOVEDA_ANDROID_KEY_PASSWORD }}
+          GRADLE_OPTS: >-
+            -Dorg.gradle.daemon=false
+            -Dorg.gradle.project.kotlin.compiler.execution.strategy=in-process
+            -Dorg.gradle.project.kotlin.incremental=false
         run: |
           $ErrorActionPreference = 'Stop'
           foreach ($name in @(

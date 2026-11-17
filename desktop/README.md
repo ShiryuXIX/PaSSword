@@ -89,7 +89,9 @@ Al subir cambios a `main` del repositorio `ShiryuXIX/PaSSword`, GitHub Actions
 crea una Release con el instalador y los archivos de actualización de Windows.
 La app empaquetada comprueba esa Release al abrirse: primero pregunta si quieres
 descargarla y, cuando termina, pregunta si quieres reiniciar para instalarla.
-Las compilaciones de desarrollo no comprueban Releases.
+Las compilaciones de desarrollo no comprueban Releases. El workflow valida que
+el instalador indicado en `latest.yml` tenga el mismo nombre que el archivo
+subido a la Release para evitar enlaces de actualización rotos.
 
 Para publicar una actualización de escritorio, aumenta `version` en
 `package.json` siguiendo la secuencia indicada abajo y sube los cambios a

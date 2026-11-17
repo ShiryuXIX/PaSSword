@@ -1,6 +1,6 @@
 {
   "name": "boveda-segura",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "type": "module",
   "main": "desktop/main.cjs",
@@ -37,7 +37,8 @@
     },
     "win": {
       "icon": "desktop/app.ico",
-      "target": "nsis"
+      "target": "nsis",
+      "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,

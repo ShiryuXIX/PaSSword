@@ -278,6 +278,20 @@ jobs:
           if (-not ($desktopAssets | Where-Object Extension -eq '.exe')) {
             throw 'No se generó el instalador de Windows.'
           }
+          $latestYaml = Get-Content dist\desktop\latest.yml -Raw
+          $installerPathMatch = [regex]::Match($latestYaml, '(?m)^path:\s*(.+?)\s*$')
+          $installerUrlMatch = [regex]::Match($latestYaml, '(?m)^\s+- url:\s*(.+?)\s*$')
+          if (
+            -not $installerPathMatch.Success -or
+            -not $installerUrlMatch.Success -or
+            $installerPathMatch.Groups[1].Value -ne $installerUrlMatch.Groups[1].Value
+          ) {
+            throw 'latest.yml no identifica el mismo archivo en path y files.url.'
+          }
+          $installerName = $installerPathMatch.Groups[1].Value
+          if (-not ($desktopAssets | Where-Object Name -eq $installerName)) {
+            throw "latest.yml apunta a $installerName, pero ese instalador no existe entre los archivos publicados."
+          }
 
           $assets = @(
             $desktopAssets.FullName

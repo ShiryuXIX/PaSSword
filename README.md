@@ -228,12 +228,24 @@ Seguir también [docs/GENERAR-APK.md](./docs/GENERAR-APK.md).
 
 **Punto de control:** el cliente Windows y la aplicación Android están validados funcionalmente por el propietario. La clave de firma se conserva fuera del repositorio.
 
+### 14. Huella digital
+
+- [x] Revisar las contraseñas guardadas cada siete días mientras la bóveda está abierta y volver a revisar al editar un acceso.
+- [x] Consultar Pwned Passwords con k-anonimato; enviar solo el prefijo de cinco caracteres del hash SHA-1.
+- [x] Guardar localmente los resultados para detectar nuevas exposiciones y evitar avisos repetidos.
+- [x] Avisar en Android y Windows y señalar cada acceso con una contraseña expuesta.
+- [x] Permitir la consulta manual del email desde el detalle de un acceso; PaSSword no envía ni precompleta el correo.
+- [x] Documentar límites de cobertura y privacidad; verificar con pruebas móviles, de escritorio y builds de ambas plataformas.
+
+**Punto de control:** el escaneo cubre los datos de contraseñas conocidos por Have I Been Pwned; no equivale a rastrear toda la dark web. La consulta del email se hace manualmente en la página del proveedor. La publicación autorizada incluye la APK Flutter vigente y el instalador Windows; la antigua TWA no forma parte del producto.
+
 ## Estado final del proyecto
 
 - El proyecto real `gestor-pass-b60d6` está configurado y operativo en Firebase.
 - Firebase Authentication y Firestore permanecen activos para los clientes nativos.
 - Firebase Hosting, la PWA y la TWA ya no forman parte del producto.
 - La APK Android vigente es la aplicación Flutter nativa `password.app.flutter`; el propietario confirma el funcionamiento de inicio, gestión, bloqueo y sincronización.
+- La huella digital revisa las contraseñas con k-anonimato y ofrece consulta manual de emails, sin enviar emails automáticamente.
 - No se incluye ninguna credencial, keystore ni contraseña de firma en el repositorio ni en la documentación pública.
 
 ## Prioridad de trabajo

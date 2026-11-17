@@ -6,11 +6,13 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:http/http.dart' as http;
 import 'package:local_auth/local_auth.dart';
 
 import 'firebase_setup.dart';
 import 'models/vault_metadata.dart';
 import 'services/firebase_service.dart';
+import 'services/password_exposure_monitor.dart';
 import 'services/vault_crypto.dart';
 import 'services/vault_key_store.dart';
 import 'services/vault_pin_store.dart';
@@ -31,6 +33,7 @@ class VaultCredential {
     required this.site,
     required this.email,
     required this.password,
+    required this.revision,
     required this.hasPendingWrites,
   });
 
@@ -38,6 +41,7 @@ class VaultCredential {
   final String site;
   final String email;
   final String password;
+  final String revision;
   final bool hasPendingWrites;
 }
 
@@ -45,11 +49,21 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   final VaultKeyStore _keyStore = VaultKeyStore();
   final VaultPinStore _pinStore = VaultPinStore();
   final LocalAuthentication _localAuthentication = LocalAuthentication();
+  final PwnedPasswordChecker _passwordExposureChecker = PwnedPasswordChecker();
+  late final PasswordExposureMonitor _passwordExposureMonitor =
+      PasswordExposureMonitor(
+        store: SecurePasswordExposureStateStore(),
+        checker: _passwordExposureChecker,
+      );
   FirebaseService? _service;
   StreamSubscription<User?>? _authSubscription;
   StreamSubscription<CredentialSnapshot>? _credentialSubscription;
   Timer? _idleTimer;
+  Timer? _passwordExposureTimer;
   DateTime? _backgroundedAt;
+  int _vaultSessionId = 0;
+  int _credentialSetRevision = 0;
+  bool _isCheckingPasswordExposure = false;
   User? user;
   VaultMetadata? metadata;
   Uint8List? _vaultKey;
@@ -64,8 +78,11 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   bool hasPendingWrites = false;
   bool syncError = false;
   bool isBusy = false;
+  Map<String, int> passwordExposureCounts = const {};
+  String? passwordExposureError;
 
   bool get isUnlocked => stage == AppStage.unlocked && _vaultKey != null;
+  bool get isCheckingPasswordExposure => _isCheckingPasswordExposure;
 
   void clearErrorMessage() {
     if (errorMessage == null) {
@@ -521,6 +538,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       return;
     }
 
+    var shouldCheckPasswordExposure = false;
     try {
       final decrypted = <VaultCredential>[];
       for (final item in snapshot.items) {
@@ -530,17 +548,23 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
           item.id,
           item.document,
         );
+        final revision = await VaultCrypto.fingerprintEncryptedCredential(
+          item.document,
+        );
         decrypted.add(
           VaultCredential(
             id: item.id,
             site: fields['site']!,
             email: fields['email']!,
             password: fields['password']!,
+            revision: revision,
             hasPendingWrites: item.hasPendingWrites,
           ),
         );
       }
       credentials = decrypted;
+      _credentialSetRevision += 1;
+      shouldCheckPasswordExposure = true;
       snapshotsFromCache = snapshot.fromCache;
       hasPendingWrites = snapshot.hasPendingWrites;
       syncError = false;
@@ -550,6 +574,98 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       errorMessage = error.message.toString();
     }
     notifyListeners();
+    if (shouldCheckPasswordExposure) {
+      unawaited(_updatePasswordExposure());
+    }
+  }
+
+  Future<void> _updatePasswordExposure() async {
+    final activeUser = user;
+    if (!isUnlocked || activeUser == null || _isCheckingPasswordExposure) {
+      return;
+    }
+
+    final sessionId = _vaultSessionId;
+    final credentialSetRevision = _credentialSetRevision;
+    _isCheckingPasswordExposure = true;
+    passwordExposureError = null;
+    notifyListeners();
+    var retryDelay = const Duration(days: 7);
+    try {
+      final result = await _passwordExposureMonitor.scan(
+        userId: activeUser.uid,
+        credentials: credentials
+            .map(
+              (credential) => PasswordExposureCredential(
+                id: credential.id,
+                password: credential.password,
+                revision: credential.revision,
+              ),
+            )
+            .toList(growable: false),
+        canCommit: () =>
+            isUnlocked &&
+            user?.uid == activeUser.uid &&
+            _vaultSessionId == sessionId &&
+            _credentialSetRevision == credentialSetRevision,
+      );
+      if (result != null &&
+          isUnlocked &&
+          user?.uid == activeUser.uid &&
+          _vaultSessionId == sessionId &&
+          _credentialSetRevision == credentialSetRevision) {
+        passwordExposureCounts = result.counts;
+        passwordExposureError = null;
+        final remaining = result.nextFullCheckAt.difference(DateTime.now());
+        retryDelay = remaining.isNegative ? Duration.zero : remaining;
+      }
+    } on StateError {
+      if (_vaultSessionId == sessionId && user?.uid == activeUser.uid) {
+        passwordExposureError = 'No se pudo comprobar si hay contraseñas expuestas. Se volverá a intentar más tarde.';
+        retryDelay = const Duration(hours: 6);
+      }
+    } on FormatException {
+      if (_vaultSessionId == sessionId && user?.uid == activeUser.uid) {
+        passwordExposureError = 'El estado local de seguridad no se pudo leer. No se ha actualizado la comprobación.';
+        retryDelay = const Duration(hours: 6);
+      }
+    } on TimeoutException {
+      if (_vaultSessionId == sessionId && user?.uid == activeUser.uid) {
+        passwordExposureError = 'La comprobación de contraseñas agotó el tiempo de espera. Se volverá a intentar más tarde.';
+        retryDelay = const Duration(hours: 6);
+      }
+    } on http.ClientException {
+      if (_vaultSessionId == sessionId && user?.uid == activeUser.uid) {
+        passwordExposureError = 'No se pudo conectar con el servicio de comprobación. Se volverá a intentar más tarde.';
+        retryDelay = const Duration(hours: 6);
+      }
+    } on PlatformException {
+      if (_vaultSessionId == sessionId && user?.uid == activeUser.uid) {
+        passwordExposureError = 'No se pudo leer el estado local de seguridad. Se volverá a intentar más tarde.';
+        retryDelay = const Duration(hours: 6);
+      }
+    } on MissingPluginException {
+      if (_vaultSessionId == sessionId && user?.uid == activeUser.uid) {
+        passwordExposureError =
+            'No está disponible el almacenamiento local de seguridad.';
+        retryDelay = const Duration(hours: 6);
+      }
+    } finally {
+      if (isUnlocked &&
+          user?.uid == activeUser.uid &&
+          _vaultSessionId == sessionId) {
+        _isCheckingPasswordExposure = false;
+        notifyListeners();
+        if (_credentialSetRevision != credentialSetRevision) {
+          unawaited(_updatePasswordExposure());
+        } else {
+          _passwordExposureTimer?.cancel();
+          _passwordExposureTimer = Timer(retryDelay, () {
+            unawaited(_updatePasswordExposure());
+          });
+        }
+      }
+    }
   }
 
   void _handleSyncError(Object error, StackTrace stack) {
@@ -815,7 +931,14 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> lockAndSignOut() => signOut();
 
   void _clearActiveVault() {
+    _vaultSessionId += 1;
+    _credentialSetRevision += 1;
     _idleTimer?.cancel();
+    _passwordExposureTimer?.cancel();
+    _passwordExposureTimer = null;
+    _isCheckingPasswordExposure = false;
+    passwordExposureCounts = const {};
+    passwordExposureError = null;
     final key = _vaultKey;
     key?.fillRange(0, key.length, 0);
     _vaultKey = null;
@@ -874,8 +997,10 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _idleTimer?.cancel();
+    _passwordExposureTimer?.cancel();
     unawaited(_authSubscription?.cancel());
     unawaited(_credentialSubscription?.cancel());
+    _passwordExposureChecker.close();
     _clearActiveVault();
     super.dispose();
   }

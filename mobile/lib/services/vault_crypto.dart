@@ -181,6 +181,21 @@ class VaultCrypto {
     };
   }
 
+  static Future<String> fingerprintEncryptedCredential(
+    Map<String, Object?> document,
+  ) async {
+    final keys = document.keys.toList()..sort();
+    final canonicalDocument = <String, Object?>{
+      for (final key in keys) key: document[key],
+    };
+    final digest = await Sha256().hash(
+      utf8.encode(jsonEncode(canonicalDocument)),
+    );
+    return digest.bytes
+        .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+        .join();
+  }
+
   static Future<Map<String, String>> decryptCredential(
     Uint8List key,
     String ownerId,

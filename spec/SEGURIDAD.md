@@ -16,6 +16,26 @@
 - Secretos ocultos por defecto y ausencia de secretos en URLs, logs, telemetría, notificaciones y mensajes de error.
 - Estados offline/sincronización explícitos; no afirmar éxito mientras existan escrituras pendientes o fallidas.
 
+## Comprobaciones de exposición
+
+- Con la bóveda abierta, PaSSword comprueba las contraseñas guardadas con
+  Pwned Passwords de Have I Been Pwned cada siete días; una contraseña nueva
+  o modificada se comprueba al sincronizar el cambio.
+- El SHA-1 completo se calcula en el dispositivo. Solo se solicita el rango de
+  los primeros cinco caracteres, por HTTPS y con padding; la contraseña y el
+  hash completo no se envían ni se guardan. La consulta de rango puede revelar
+  información parcial, especialmente para contraseñas débiles.
+- El resultado, el identificador de acceso, la fecha y una huella SHA-256 del
+  documento cifrado se guardan solo en el dispositivo para detectar cambios y
+  evitar avisos repetidos. En Android se usa almacenamiento seguro; en Windows,
+  almacenamiento local de la aplicación. No se sincronizan esos resultados.
+- La comprobación de emails es manual: tras confirmarlo, PaSSword abre la
+  página general de Have I Been Pwned sin incluir el email en la URL. La persona
+  escribe allí el correo; ese servicio recibe la consulta.
+- Los resultados reflejan las contraseñas y filtraciones conocidas por HIBP.
+  No garantizan cobertura de todas las filtraciones ni de toda la dark web.
+  Si no hay conexión, la comprobación falla visiblemente y se vuelve a intentar.
+
 ## Diseño criptográfico implementado
 
 - Derivación con PBKDF2-HMAC-SHA-256, 600 000 iteraciones y sal aleatoria de 16 bytes.

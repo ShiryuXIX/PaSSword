@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:open_filex/open_filex.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'app_controller.dart';
 import 'app_theme.dart';
@@ -806,11 +807,14 @@ class _VaultScreenState extends State<_VaultScreen> {
       backgroundColor: AppTheme.surface,
       builder: (context) => _CredentialDetails(
         credential: credential,
+        exposureCount:
+            widget.controller.passwordExposureCounts[credential.id] ?? 0,
         onEdit: () {
           Navigator.of(context).pop();
           _openEditor(credential);
         },
         onDelete: () => _deleteCredential(credential, context),
+        onCheckEmail: _confirmManualEmailCheck,
         onCopy: (value, label) async {
           try {
             await Clipboard.setData(ClipboardData(text: value));
@@ -925,10 +929,65 @@ class _VaultScreenState extends State<_VaultScreen> {
       ..showSnackBar(SnackBar(content: Text(message)));
   }
 
+  Future<void> _confirmManualEmailCheck() async {
+    final continueToSite = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Comprobar el correo'),
+        content: const Text(
+          'Se abrirá Have I Been Pwned. PaSSword no enviará tu correo; '
+          'tendrás que escribirlo tú en esa página.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Abrir Have I Been Pwned'),
+          ),
+        ],
+      ),
+    );
+    if (continueToSite != true) {
+      return;
+    }
+
+    try {
+      final opened = await launchUrl(
+        Uri.https('haveibeenpwned.com', '/'),
+        mode: LaunchMode.externalApplication,
+      );
+      if (mounted) {
+        _showFeedback(
+          opened
+              ? 'Se abrió Have I Been Pwned. PaSSword no envió tu correo.'
+              : 'No se pudo abrir Have I Been Pwned en el navegador.',
+        );
+      }
+    } on PlatformException {
+      if (mounted) {
+        _showFeedback('No se pudo abrir Have I Been Pwned en el navegador.');
+      }
+    } on MissingPluginException {
+      if (mounted) {
+        _showFeedback('No está disponible la apertura del navegador externo.');
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = widget.controller;
     final items = _filtered(controller.credentials);
+    final exposedCredentialCount = controller.passwordExposureCounts.values
+        .where((count) => count > 0)
+        .length;
+    final exposureError = controller.passwordExposureError;
+    final exposureMessage = exposedCredentialCount > 0
+        ? 'Se encontraron $exposedCredentialCount accesos con contraseñas que aparecen en filtraciones conocidas. Cámbialas cuanto antes.${exposureError == null ? '' : ' No se pudo actualizar la comprobación.'}'
+        : exposureError;
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 22,
@@ -1017,6 +1076,13 @@ class _VaultScreenState extends State<_VaultScreen> {
                   ),
                   const SizedBox(height: 12),
                   _SyncStatus(status: controller.syncStatus),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Huella digital: revisión semanal y tras editar un acceso, '
+                    'con la bóveda abierta.',
+                    style: Theme.of(context).textTheme.bodySmall
+                        ?.copyWith(color: AppTheme.muted),
+                  ),
                 ],
               ),
             ),
@@ -1024,6 +1090,17 @@ class _VaultScreenState extends State<_VaultScreen> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 6, 20, 8),
                 child: _MessageBanner(message: controller.errorMessage!),
+              ),
+            if (exposureMessage != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 6, 20, 8),
+                child: _MessageBanner(message: exposureMessage),
+              ),
+            if (exposureMessage == null &&
+                controller.isCheckingPasswordExposure)
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 6, 20, 8),
+                child: LinearProgressIndicator(),
               ),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 14),
@@ -1055,6 +1132,8 @@ class _VaultScreenState extends State<_VaultScreen> {
                       separatorBuilder: (_, _) => const Divider(indent: 58),
                       itemBuilder: (context, index) {
                         final item = items[index];
+                        final exposureCount =
+                            controller.passwordExposureCounts[item.id] ?? 0;
                         return ListTile(
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 4,
@@ -1077,17 +1156,30 @@ class _VaultScreenState extends State<_VaultScreen> {
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(color: AppTheme.muted),
                           ),
-                          trailing: item.hasPendingWrites
-                              ? const Icon(
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (exposureCount > 0)
+                                Icon(
+                                  Icons.warning_amber_rounded,
+                                  color: AppTheme.error,
+                                  size: 20,
+                                  semanticLabel: 'Contraseña expuesta en filtraciones conocidas',
+                                ),
+                              if (item.hasPendingWrites)
+                                const Icon(
                                   Icons.cloud_upload_outlined,
                                   color: AppTheme.lime,
                                   size: 20,
                                   semanticLabel: 'Pendiente de sincronizar',
                                 )
-                              : const Icon(
+                              else
+                                const Icon(
                                   Icons.chevron_right,
                                   color: AppTheme.muted,
                                 ),
+                            ],
+                          ),
                           onTap: () => _showCredential(item),
                         );
                       },
@@ -1168,14 +1260,18 @@ class _EmptyState extends StatelessWidget {
 class _CredentialDetails extends StatefulWidget {
   const _CredentialDetails({
     required this.credential,
+    required this.exposureCount,
     required this.onEdit,
     required this.onDelete,
+    required this.onCheckEmail,
     required this.onCopy,
   });
 
   final VaultCredential credential;
+  final int exposureCount;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final VoidCallback onCheckEmail;
   final Future<void> Function(String value, String label) onCopy;
 
   @override
@@ -1237,6 +1333,17 @@ class _CredentialDetailsState extends State<_CredentialDetails> {
                 ),
               ],
             ),
+            if (RegExp(r'^[^\s@]+@[^\s@]+$').hasMatch(item.email)) ...[
+              const SizedBox(height: 4),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: widget.onCheckEmail,
+                  icon: const Icon(Icons.open_in_new),
+                  label: const Text('Comprobar exposición del correo'),
+                ),
+              ),
+            ],
             const SizedBox(height: 14),
             const Text('Contraseña', style: TextStyle(color: AppTheme.muted)),
             const SizedBox(height: 5),
@@ -1266,6 +1373,13 @@ class _CredentialDetailsState extends State<_CredentialDetails> {
                 ),
               ],
             ),
+            if (widget.exposureCount > 0) ...[
+              const SizedBox(height: 8),
+              _MessageBanner(
+                message:
+                    'Esta contraseña aparece ${widget.exposureCount} veces en filtraciones conocidas. Cámbiala en ese servicio y no la reutilices.',
+              ),
+            ],
           ],
         ),
       ),

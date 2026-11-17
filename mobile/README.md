@@ -27,6 +27,15 @@ antes de sincronizarlo y no depende de la web ni de Firebase Hosting.
 - El propietario valida en Android el inicio de sesión, desbloqueo, creación,
   edición y borrado de accesos, el bloqueo por inactividad, la sincronización
   cifrada y el desbloqueo biométrico disponible en el dispositivo.
+- La comprobación de contraseñas usa Pwned Passwords cada siete días mientras
+  la bóveda está abierta; los cambios se comprueban al sincronizarse. Solo se
+  envía el prefijo de cinco caracteres del hash SHA-1, nunca la contraseña ni
+  el hash completo. El resultado se conserva solo en el almacenamiento seguro
+  local del dispositivo.
+- Desde el detalle de un acceso con email se puede abrir Have I Been Pwned
+  manualmente. PaSSword no envía el correo: la persona lo escribe en la página.
+- Esta consulta cubre los datos conocidos por HIBP y no equivale a rastrear
+  todas las filtraciones o la dark web.
 - Tras estos cambios, falta validar en un teléfono la pantalla de desbloqueo,
   el PIN propio de PaSSword y la recuperación con la contraseña maestra.
 

@@ -36,6 +36,7 @@ app.whenReady().then(async () => {
     });
     registerOAuthHandler();
     registerPinHandlers();
+    registerEmailBreachCheckHandler();
     await createMainWindow();
     checkForUpdates();
   } catch (error) {
@@ -306,6 +307,16 @@ function registerPinHandlers() {
   });
 }
 
+function registerEmailBreachCheckHandler() {
+  ipcMain.handle("desktop:open-email-breach-check", async (event) => {
+    if (!isTrustedRenderer(event)) {
+      return { error: "La solicitud no está permitida." };
+    }
+    await shell.openExternal("https://haveibeenpwned.com/");
+    return { opened: true };
+  });
+}
+
 function isTrustedRenderer(event) {
   if (
     event.sender !== mainWindow?.webContents
@@ -327,7 +338,7 @@ function createContentSecurityPolicy(nonce = "") {
     `script-src 'self'${scriptNonce}`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https://*.googleusercontent.com",
-    "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://*.firebaseapp.com",
+    "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://*.firebaseapp.com https://api.pwnedpasswords.com",
     "frame-src https://*.firebaseapp.com",
     "worker-src 'self' blob:",
     "object-src 'none'",

@@ -118,6 +118,14 @@ secuencia (por ejemplo, `0.2.0` para mostrar `0.2`).
   cuando quieras terminar la sesión.
 - El SDK queda incluido en el instalador; la app solo se conecta a
   Google/Firebase para autenticación y sincronización.
+- Con la bóveda abierta, PaSSword comprueba las contraseñas cada siete días y
+  al detectar cambios. Usa Pwned Passwords con k-anonimato: solo envía por
+  HTTPS los cinco primeros caracteres del hash SHA-1, nunca la contraseña ni
+  el hash completo. Los resultados se guardan localmente y no se sincronizan.
+- El detalle de un acceso con email permite abrir Have I Been Pwned tras una
+  confirmación. PaSSword no envía ni precompleta el correo; se escribe en la
+  página externa. La cobertura depende de los datos conocidos por HIBP y no
+  representa todas las filtraciones ni toda la dark web.
 - El puerto local `43183` debe estar libre. No lo cambies sin migrar antes los
   datos locales, ya que el origen aloja la sesión de Firebase y las llaves de
   IndexedDB.

@@ -1545,3 +1545,65 @@ a:focus-visible,
 input:focus-visible {
   outline-color: #c9eb87;
 }
+
+.credential-risk {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 3px 7px;
+  border: 1px solid rgb(240 162 155 / 38%);
+  border-radius: 999px;
+  color: var(--error);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.row-copy .credential-risk {
+  color: var(--error);
+}
+
+.password-exposure-banner {
+  margin: 0 0 16px;
+  padding: 12px 15px;
+  border: 1px solid rgb(240 162 155 / 42%);
+  border-left: 3px solid var(--error);
+  border-radius: 8px;
+  color: var(--error);
+  background: rgb(240 162 155 / 7%);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.password-exposure-caption {
+  margin: -5px 0 14px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.password-exposure-banner[data-kind="checking"] {
+  border-color: var(--line);
+  border-left-color: var(--lime);
+  color: var(--muted);
+  background: transparent;
+}
+
+.exposure-warning {
+  margin: 18px 0 0;
+  padding: 12px;
+  border-left: 3px solid var(--error);
+  color: var(--error);
+  background: rgb(240 162 155 / 7%);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.email-breach-check {
+  flex: 0 0 100%;
+  margin-top: 0;
+  order: -1;
+  text-align: left;
+}
+
+.detail-actions {
+  flex-wrap: wrap;
+}

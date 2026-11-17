@@ -20,6 +20,10 @@ import {
   isBiometricUnlockAvailable,
   unlockBiometricVaultKey,
 } from "./vault-biometric.js";
+import {
+  fingerprintEncryptedCredential,
+  scanPasswordExposure,
+} from "./password-exposure.js";
 
 const credentials = [];
 const symbols = "!@#$%^&*()-_=+[]{}:,.?";
@@ -53,6 +57,7 @@ const biometricMasterPasswordInput = document.querySelector("#biometric-master-p
 const biometricSetupError = document.querySelector("#biometric-setup-error");
 const confirmBiometricSetupButton = document.querySelector("#confirm-biometric-setup");
 const toast = document.querySelector("#toast");
+const exposureBanner = document.querySelector("#password-exposure-banner");
 const searchInput = document.querySelector("#search-input");
 const passwordInput = document.querySelector("#password-input");
 const passwordVisibilityButton = document.querySelector("#toggle-password-visibility");
@@ -102,12 +107,17 @@ let selectedId = null;
 let toastTimeout;
 let revealTimeout;
 let passwordVisibilityTimeout;
+let passwordExposureTimer;
+let passwordExposureCounts = {};
+let passwordExposureError = "";
+let passwordExposureIsScanning = false;
 let pendingWriteCount = 0;
 let pendingDocumentCount = 0;
 let snapshotFromCache = true;
 let syncError = false;
 let keyRotationInProgress = false;
 let vaultSessionId = 0;
+let credentialSnapshotRevision = 0;
 
 function randomIndex(length) {
   if (!Number.isSafeInteger(length) || length < 1 || length > 256) {
@@ -287,6 +297,12 @@ function updateSyncStatus() {
 
 function clearVaultState() {
   vaultSessionId += 1;
+  credentialSnapshotRevision += 1;
+  window.clearTimeout(passwordExposureTimer);
+  passwordExposureTimer = undefined;
+  passwordExposureCounts = {};
+  passwordExposureError = "";
+  passwordExposureIsScanning = false;
   document.body.classList.remove("vault-open");
   window.clearTimeout(revealTimeout);
   credentialsUnsubscribe?.();
@@ -345,12 +361,19 @@ function startCredentialListener() {
   credentialsUnsubscribe = firebaseClient.watchVaultCredentials(
     userId,
     (items, fromCache) => {
+      const snapshotRevision = ++credentialSnapshotRevision;
       void Promise.all(items.map(async ({ id, document }) => ({
         id,
         ...await decryptCredential(activeKey, userId, id, document),
+        revision: await fingerprintEncryptedCredential(document),
       })))
         .then((decrypted) => {
-          if (vaultSessionId !== sessionId || vaultKey !== activeKey || currentUser?.uid !== userId) {
+          if (
+            vaultSessionId !== sessionId
+            || vaultKey !== activeKey
+            || currentUser?.uid !== userId
+            || snapshotRevision !== credentialSnapshotRevision
+          ) {
             return;
           }
           credentials.splice(0, credentials.length, ...decrypted);
@@ -359,12 +382,14 @@ function startCredentialListener() {
           syncError = false;
           render();
           updateSyncStatus();
+          void updatePasswordExposure();
         })
         .catch(() => {
           if (
             vaultSessionId !== sessionId
             || vaultKey !== activeKey
             || currentUser?.uid !== userId
+            || snapshotRevision !== credentialSnapshotRevision
             || keyRotationInProgress
           ) {
             return;
@@ -380,6 +405,65 @@ function startCredentialListener() {
       }
     },
   );
+}
+
+async function updatePasswordExposure() {
+  if (!vaultKey || !currentUser || passwordExposureIsScanning) {
+    return;
+  }
+  const activeUserId = currentUser.uid;
+  const activeKey = vaultKey;
+  const sessionId = vaultSessionId;
+  const snapshotRevision = credentialSnapshotRevision;
+  passwordExposureIsScanning = true;
+  let nextDelay = 6 * 60 * 60 * 1000;
+  render();
+
+  try {
+    const result = await scanPasswordExposure({
+      userId: activeUserId,
+      credentials: credentials.map(({ id, password, revision }) => ({
+        id,
+        password,
+        revision,
+      })),
+      canCommit: () => vaultSessionId === sessionId
+        && vaultKey === activeKey
+        && currentUser?.uid === activeUserId
+        && credentialSnapshotRevision === snapshotRevision,
+    });
+    if (result && vaultSessionId === sessionId && vaultKey === activeKey) {
+      passwordExposureCounts = result.counts;
+      passwordExposureError = "";
+      nextDelay = Math.max(1000, result.nextFullCheckAt - Date.now());
+      if (result.newlyExposedIds.length > 0) {
+        showToast(
+          `Se detectaron contraseñas expuestas en ${result.newlyExposedIds.length} acceso(s). Cámbialas cuanto antes.`,
+          "error",
+        );
+      }
+    }
+  } catch {
+    if (vaultSessionId === sessionId && vaultKey === activeKey) {
+      passwordExposureError =
+        "No se pudo completar la comprobación de contraseñas. Se volverá a intentar más tarde.";
+    }
+  } finally {
+    if (vaultSessionId === sessionId && vaultKey === activeKey) {
+      passwordExposureIsScanning = false;
+      render();
+      if (credentialSnapshotRevision !== snapshotRevision) {
+        window.clearTimeout(passwordExposureTimer);
+        void updatePasswordExposure();
+        return;
+      }
+      window.clearTimeout(passwordExposureTimer);
+      passwordExposureTimer = window.setTimeout(
+        () => void updatePasswordExposure(),
+        Math.min(nextDelay, 2_147_000_000),
+      );
+    }
+  }
 }
 
 function renderAccountAvatar(user) {
@@ -1219,7 +1303,14 @@ function renderList() {
     site.textContent = credential.site;
     const username = document.createElement("span");
     username.textContent = credential.email;
-    copy.append(site, username);
+    copy.append(site);
+    if ((passwordExposureCounts[credential.id] ?? 0) > 0) {
+      const risk = document.createElement("span");
+      risk.className = "credential-risk";
+      risk.textContent = "Contraseña expuesta";
+      copy.append(risk);
+    }
+    copy.append(username);
 
     const chevron = document.createElement("span");
     chevron.className = "row-chevron";
@@ -1285,9 +1376,26 @@ function renderDetail() {
     password: true,
   });
   detailElement.append(emailField, passwordField);
+  const exposureCount = passwordExposureCounts[credential.id] ?? 0;
+  if (exposureCount > 0) {
+    const warning = document.createElement("p");
+    warning.className = "exposure-warning";
+    warning.setAttribute("role", "alert");
+    warning.textContent =
+      `Esta contraseña aparece ${exposureCount} veces en filtraciones conocidas. Cámbiala en ese servicio y no la reutilices.`;
+    detailElement.append(warning);
+  }
 
   const actions = document.createElement("footer");
   actions.className = "detail-actions";
+  if (/^[^\s@]+@[^\s@]+$/.test(credential.email)) {
+    const checkEmail = document.createElement("button");
+    checkEmail.type = "button";
+    checkEmail.className = "text-button email-breach-check";
+    checkEmail.textContent = "Comprobar exposición del correo";
+    checkEmail.addEventListener("click", openEmailBreachCheck);
+    actions.append(checkEmail);
+  }
   const edit = document.createElement("button");
   edit.type = "button";
   edit.className = "text-button";
@@ -1367,6 +1475,40 @@ function createDetailField(label, value, options = {}) {
 function render() {
   renderList();
   renderDetail();
+  renderPasswordExposureBanner();
+}
+
+function renderPasswordExposureBanner() {
+  const exposedCount = Object.values(passwordExposureCounts)
+    .filter((count) => count > 0).length;
+  exposureBanner.hidden = !passwordExposureError
+    && exposedCount === 0
+    && !passwordExposureIsScanning;
+  exposureBanner.dataset.kind = exposedCount > 0 || passwordExposureError
+    ? "warning"
+    : "checking";
+  if (passwordExposureError) {
+    exposureBanner.textContent = exposedCount > 0
+      ? `${exposedCount} acceso(s) tienen contraseñas expuestas. Además, ${passwordExposureError}`
+      : passwordExposureError;
+  } else if (exposedCount > 0) {
+    exposureBanner.textContent =
+      `Se encontraron ${exposedCount} acceso(s) con contraseñas expuestas en filtraciones conocidas. Cámbialas cuanto antes.`;
+  } else if (passwordExposureIsScanning) {
+    exposureBanner.textContent =
+      "Comprobando las contraseñas guardadas. Solo se consulta un fragmento del hash; nunca se envía la contraseña.";
+  }
+}
+
+function openEmailBreachCheck() {
+  if (!window.confirm(
+    "Se abrirá Have I Been Pwned. PaSSword no enviará tu correo; tendrás que escribirlo tú en esa página. ¿Continuar?",
+  )) {
+    return;
+  }
+  window.bovedaDesktop.openEmailBreachCheck()
+    .then(() => showToast("Se abrió Have I Been Pwned. PaSSword no envió tu correo."))
+    .catch(() => showToast("No se pudo abrir Have I Been Pwned.", "error"));
 }
 
 function openDialog(credential = null) {

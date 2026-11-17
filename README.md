@@ -239,6 +239,8 @@ Seguir también [docs/GENERAR-APK.md](./docs/GENERAR-APK.md).
 
 **Punto de control:** el escaneo cubre los datos de contraseñas conocidos por Have I Been Pwned; no equivale a rastrear toda la dark web. La consulta del email se hace manualmente en la página del proveedor. La publicación autorizada incluye la APK Flutter vigente y el instalador Windows; la antigua TWA no forma parte del producto.
 
+**Publicación:** [v0.2.2-android-4](https://github.com/ShiryuXIX/PaSSword/releases/tag/v0.2.2-android-4), con la APK Android `1.1.2+4` y la aplicación Windows `0.2.2`.
+
 ## Estado final del proyecto
 
 - El proyecto real `gestor-pass-b60d6` está configurado y operativo en Firebase.

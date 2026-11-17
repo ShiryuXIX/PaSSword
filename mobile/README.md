@@ -88,7 +88,7 @@ solo tras aceptar. Android puede pedir permiso para instalar aplicaciones
 desde PaSSword y siempre muestra su propia confirmación final.
 
 Las versiones Android deben aumentar en `mobile/pubspec.yaml` antes de cada
-cambio móvil: incrementa el código después de `+` (por ejemplo, `1.1.1+3`).
+cambio móvil: incrementa el código después de `+` (por ejemplo, `1.1.2+4`).
 La versión y el código se comparan por separado; no publiques un código ya
 usado. La primera APK con el comprobador debe instalarse manualmente en las
 instalaciones existentes, porque la APK anterior no puede mostrar avisos.

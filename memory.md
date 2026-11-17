@@ -6,3 +6,4 @@
 - 2026-11-17: El propietario aclaró que «las dos APK» fue un error: publicar la única APK vigente (`password.app.flutter`) y la aplicación Windows. No reactivar la antigua TWA `password.app`, retirada del producto.
 - 2026-11-17: Versiones preparadas para la publicación autorizada: escritorio `0.2.2`, Android `1.1.2+4`; el workflow de GitHub publicará la APK firmada y el instalador Windows.
 - 2026-11-17: Actualizado el README principal con el funcionamiento, límites y destinos de publicación de Huella digital.
+- 2026-11-17: Publicación completada por GitHub Actions en [v0.2.2-android-4](https://github.com/ShiryuXIX/PaSSword/releases/tag/v0.2.2-android-4). Release verificada: APK firmada `PaSSword-Android.apk` (Flutter `1.1.2+4`) y aplicación Windows `PaSSword.Setup.0.2.2.exe`.

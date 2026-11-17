@@ -196,13 +196,19 @@ jobs:
             $keystoreBytes = [Convert]::FromBase64String($env:BOVEDA_ANDROID_KEYSTORE_BASE64)
             [IO.File]::WriteAllBytes($keystorePath, $keystoreBytes)
             $env:BOVEDA_ANDROID_KEYSTORE = $keystorePath
-            flutter build apk --release `
-              --build-name '${{ steps.versions.outputs.android_version }}' `
-              --build-number '${{ steps.versions.outputs.android_build }}' `
-              --dart-define=FIREBASE_ANDROID_APP_ID=1:899324045825:android:ebd3680a4801d2b32fae00 `
-              --dart-define=GOOGLE_SERVER_CLIENT_ID=899324045825-s28q0rrt4nlfjoptja33boggf0a1etfb.apps.googleusercontent.com
-            if ($LASTEXITCODE -ne 0) {
-              throw "La compilación Flutter terminó con el código $LASTEXITCODE."
+            Push-Location mobile
+            try {
+              flutter build apk --release `
+                --build-name '${{ steps.versions.outputs.android_version }}' `
+                --build-number '${{ steps.versions.outputs.android_build }}' `
+                --dart-define=FIREBASE_ANDROID_APP_ID=1:899324045825:android:ebd3680a4801d2b32fae00 `
+                --dart-define=GOOGLE_SERVER_CLIENT_ID=899324045825-s28q0rrt4nlfjoptja33boggf0a1etfb.apps.googleusercontent.com
+              if ($LASTEXITCODE -ne 0) {
+                throw "La compilación Flutter terminó con el código $LASTEXITCODE."
+              }
+            }
+            finally {
+              Pop-Location
             }
 
             $apkPath = 'mobile\build\app\outputs\flutter-apk\app-release.apk'

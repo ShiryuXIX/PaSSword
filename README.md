@@ -8,6 +8,8 @@ Gestor de contraseñas para Windows y Android. Windows usa Electron y Android us
 
 > **Prioridad actual:** mantener los clientes de escritorio y Android nativo; no desplegar una interfaz web.
 
+> **Recuperación actual:** las bóvedas nuevas guardan su llave AES en Firestore para abrirse automáticamente al iniciar sesión con Google. El administrador del proyecto Firebase también puede leer esa llave y descifrar los accesos. Las bóvedas antiguas requieren su clave actual una vez para activar esta recuperación. Antes de usar o publicar el cambio, hay que desplegar las reglas actualizadas de `desktop/ui/firestore.rules`.
+
 ## Estructura
 
 - `AGENTS.md`: instrucciones para trabajar en este proyecto.
@@ -27,9 +29,9 @@ La interfaz de `desktop/ui/` solo se empaqueta en la aplicación de escritorio. 
 - [x] Revisar y resolver las preguntas aplicables de [spec/DECISIONES-PENDIENTES.md](./spec/DECISIONES-PENDIENTES.md).
 - [x] Confirmar el nombre del producto: PaSSword, manteniendo el icono, los colores y la identidad visual ya implementados.
 - [x] Revisar la disponibilidad del proyecto de referencia: CompraLista no está incluido en este espacio de trabajo; se continúa con la arquitectura documentada de esta aplicación.
-- [x] Definir el método de desbloqueo: contraseña maestra al crear la bóveda y una vez por cada navegador/dispositivo; la clave no exportable se recuerda localmente y Google autoriza su reutilización en ese dispositivo. Un dispositivo nuevo necesita la maestra; tras 5 minutos se cierra la sesión.
+- [x] Método actual: Google identifica a la persona y Firestore recupera la llave AES; las bóvedas heredadas necesitan la clave maestra una vez para migrarse.
 - [x] Decidir si compartir entra en la primera versión: queda excluido; no se implementará hasta aprobar y validar un diseño seguro.
-- [x] Acordar la política offline: uso solo en dispositivos personales de confianza; Firestore conserva solo contenido cifrado y la clave AES no exportable se recuerda en IndexedDB por dispositivo. Se puede olvidar desde la aplicación; una vulnerabilidad del mismo origen o el control de una sesión Google autenticada podría utilizarla.
+- [x] Acordar la política offline: Firestore conserva credenciales cifradas y una llave de recuperación por cuenta; el propietario/administrador del proyecto puede leer esa llave. Los perfiles antiguos también pueden conservar llaves locales.
 
 **Punto de control:** las decisiones necesarias para la primera versión están resueltas. Compartir sigue fuera del alcance hasta que exista un diseño seguro y verificable.
 
@@ -45,7 +47,7 @@ Seguir también [docs/CONFIGURAR-FIREBASE.md](./docs/CONFIGURAR-FIREBASE.md).
 - [x] Crear Firestore Standard en modo de producción; las reglas revisadas ahora limitan acceso a propietarios autenticados.
 - [x] Definir un esquema mínimo en código para guardar exclusivamente documentos cifrados.
 - [x] Diseñar el modelo de identidad y permisos por usuario/recurso; las reglas locales limitan el acceso al UID autenticado.
-- [x] Escribir y probar localmente reglas Firestore con denegación por defecto y permisos mínimos.
+- [x] Escribir reglas Firestore con denegación por defecto y permisos mínimos; desplegar la versión actualizada antes de activar la recuperación.
 - [x] Añadir la configuración de índices necesaria (sin índices compuestos adicionales).
 - [x] Validar las reglas localmente para propietario, UID ajeno, sesión anónima, esquema y operaciones CRUD.
 - [x] Registrar Firebase Hosting para servir los recursos estáticos usados por la TWA.
@@ -57,7 +59,7 @@ Seguir también [docs/CONFIGURAR-FIREBASE.md](./docs/CONFIGURAR-FIREBASE.md).
 ### 3. Diseñar y programar la bóveda
 
 - [x] Definir el formato versionado de los documentos cifrados y el ciclo de vida de claves, sales y nonces con criptografía estándar del navegador.
-- [x] Definir cómo se deriva o desbloquea la clave y cómo se bloquea la bóveda; la recuperación no existe por decisión del propietario.
+- [x] Definir cómo se deriva o desbloquea la clave y cómo se bloquea la bóveda; el propietario autorizó recuperar la llave mediante Google y Firebase.
 - [x] Integrar y validar autenticación Google con el SDK, el proyecto Firebase y el Hosting publicado, incluido el inicio y cierre de sesión real.
 - [x] Crear la interfaz cliente basada en HTML/CSS/JavaScript, compartida durante la transición con la TWA.
 - [x] Crear la pantalla principal inicial con lista en memoria y acciones para añadir, seleccionar, editar, eliminar y buscar.
@@ -66,9 +68,9 @@ Seguir también [docs/CONFIGURAR-FIREBASE.md](./docs/CONFIGURAR-FIREBASE.md).
 - [x] Añadir copia de email y contraseña al portapapeles con confirmación visible y errores explícitos.
 - [x] Implementar el generador de contraseñas de 12 caracteres con mayúscula, minúscula, número y símbolo; usar `crypto.getRandomValues`, selección sin sesgo y mezcla segura, nunca `Math.random`.
 - [x] Comprobar que una contraseña generada sigue siendo editable manualmente.
-- [x] Cifrar en cliente los campos sensibles antes de escribirlos en Firestore; se verificó con una credencial sintética que Firestore no expone los campos sensibles en claro.
-- [x] Implementar localmente el cambio de contraseña maestra con recifrado atómico de hasta 249 accesos, bloqueo temporal de escrituras y nuevas IDs que aíslan las operaciones offline antiguas tras rotar.
-- [x] No persistir la contraseña maestra ni datos descifrados. La clave AES-GCM no exportable se conserva en IndexedDB por usuario/dispositivo; se borra la referencia activa de memoria al bloquear o cerrar sesión.
+- [x] Cifrar en cliente los campos sensibles antes de escribirlos en Firestore; Firestore almacena además la llave de recuperación, accesible a administradores del proyecto.
+- [x] Implementar el cifrado autenticado de accesos; la rotación de clave maestra ya no está disponible en los clientes actuales para no invalidar la llave de recuperación de Google.
+- [x] No persistir datos descifrados. En bóvedas nuevas, la llave AES se guarda en el documento de recuperación de Firestore; las bóvedas heredadas requieren la clave maestra una vez para migrar.
 - [x] Configurar persistencia offline del SDK; se comprobó que los datos cifrados pueden leerse y editarse tras recargar offline y desbloquear la bóveda.
 - [x] Implementar bloqueo por inactividad de 5 minutos y cierre de sesión, además del desbloqueo.
 - [x] Comprobar los estados visibles de sincronizado y pendiente durante el uso conectado y offline.
@@ -257,7 +259,7 @@ Windows y Android nativo están validados por el propietario. No desplegar ni re
 ## Seguridad y datos del propietario
 
 - El `packageId` Android de Flutter es `password.app.flutter`; la clave de firma se conserva fuera del repositorio.
-- No almacenar la contraseña maestra ni contraseñas descifradas en Firestore, `localStorage`, URLs, logs, notificaciones o caché. La clave criptográfica local sí permanece en IndexedDB de los dispositivos configurados, decisión aprobada por el propietario.
+- No almacenar contraseñas descifradas en Firestore, `localStorage`, URLs, logs, notificaciones o caché. La llave AES recuperable sí se almacena en Firestore; el propietario aprobó este cambio de seguridad para permitir el inicio automático con Google.
 - No incluir archivos de credenciales, keystores ni contraseñas de firma en el repositorio.
 - No compartir secretos mediante documentos en claro ni enlaces portadores.
 - La revocación no puede retirar copias que un destinatario ya haya descifrado o guardado.

@@ -32,12 +32,14 @@ import { firebaseConfig } from "./firebase-config.js";
 import {
   PBKDF2_ITERATIONS,
   decodeVaultBytes,
+  decodeVaultRecoveryKey,
   decryptCredential,
   encodeVaultBytes,
   encryptCredential,
 } from "./vault-crypto.js";
 
 export const KDF_NAME = "PBKDF2-SHA-256";
+export const RECOVERY_KEY_MODE = "RANDOM-AES-256";
 const MAX_ATOMIC_KEY_ROTATION_CREDENTIALS = 249;
 export const app = initializeApp(firebaseConfig);
 export const auth = initializeAuth(app, {
@@ -131,6 +133,10 @@ function vaultMetadataRef(uid) {
   return doc(db, "users", uid, "vault", "meta");
 }
 
+function vaultRecoveryRef(uid) {
+  return doc(db, "users", uid, "vault", "recovery");
+}
+
 function credentialsCollectionRef(uid) {
   return collection(db, "users", uid, "credentials");
 }
@@ -158,25 +164,109 @@ export async function readVaultMetadata(uid) {
   return snapshot.exists() ? snapshot.data() : null;
 }
 
-export async function createVaultMetadata(uid, salt, verifier) {
+export async function readVaultRecoveryKey(uid) {
+  const reference = vaultRecoveryRef(uid);
+
+  if (navigator.onLine) {
+    try {
+      const snapshot = await getDocFromServer(reference);
+      return snapshot.exists() ? decodeVaultRecoveryKey(snapshot.data()) : null;
+    } catch (error) {
+      if (!["unavailable", "deadline-exceeded"].includes(error?.code)) {
+        throw error;
+      }
+    }
+  }
+
+  let snapshot;
+  try {
+    snapshot = await getDocFromCache(reference);
+  } catch (error) {
+    if (["failed-precondition", "unavailable"].includes(error?.code)) {
+      return null;
+    }
+    throw error;
+  }
+  return snapshot.exists() ? decodeVaultRecoveryKey(snapshot.data()) : null;
+}
+
+export async function createVaultMetadata(uid, salt, verifier, recoveryKey) {
   if (!navigator.onLine) {
     throw new Error("Necesitas conexión para configurar PaSSword por primera vez.");
   }
+  if (!(recoveryKey instanceof Uint8Array) || recoveryKey.length !== 32) {
+    throw new TypeError("La llave de recuperación de PaSSword no es válida.");
+  }
 
   const reference = vaultMetadataRef(uid);
+  const recoveryReference = vaultRecoveryRef(uid);
   await runTransaction(db, async (transaction) => {
     const existing = await transaction.get(reference);
-    if (existing.exists()) {
+    const existingRecoveryKey = await transaction.get(recoveryReference);
+    if (existing.exists() || existingRecoveryKey.exists()) {
       throw new Error("PaSSword ya está configurado. Vuelve a cargar sus datos e intenta desbloquearlo.");
     }
 
     transaction.set(reference, {
       version: 1,
-      kdf: KDF_NAME,
-      iterations: PBKDF2_ITERATIONS,
+      kdf: RECOVERY_KEY_MODE,
+      iterations: 0,
       keyGeneration: 1,
       salt: encodeVaultBytes(salt),
       verifier,
+    });
+    transaction.set(recoveryReference, {
+      version: 1,
+      key: encodeVaultBytes(recoveryKey),
+    });
+  });
+}
+
+export async function saveVaultRecoveryKeyIfAbsent(uid, recoveryKey, expectedMetadata) {
+  if (!navigator.onLine) {
+    throw new Error("Conéctate para activar la recuperación de esta bóveda.");
+  }
+  if (!(recoveryKey instanceof Uint8Array) || recoveryKey.length !== 32) {
+    throw new TypeError("La llave de recuperación de PaSSword no es válida.");
+  }
+
+  const reference = vaultRecoveryRef(uid);
+  const metadataReference = vaultMetadataRef(uid);
+  await runTransaction(db, async (transaction) => {
+    const metadataSnapshot = await transaction.get(metadataReference);
+    const existing = await transaction.get(reference);
+    if (!metadataSnapshot.exists()) {
+      const error = new Error("No se encontró la configuración de PaSSword.");
+      error.code = "vault/metadata-changed";
+      throw error;
+    }
+    const metadata = metadataSnapshot.data();
+    try {
+      assertExpectedVaultMetadata(metadata, expectedMetadata);
+    } catch (error) {
+      error.code = "vault/metadata-changed";
+      throw error;
+    }
+    if (metadata.rotationInProgress === true) {
+      const error = new Error("La bóveda se está actualizando desde otro dispositivo.");
+      error.code = "vault/metadata-changed";
+      throw error;
+    }
+    if (existing.exists()) {
+      const storedKey = decodeVaultRecoveryKey(existing.data());
+      let difference = 0;
+      for (let index = 0; index < storedKey.length; index += 1) {
+        difference |= storedKey[index] ^ recoveryKey[index];
+      }
+      storedKey.fill(0);
+      if (difference !== 0) {
+        throw new Error("Ya hay una llave de recuperación distinta para esta cuenta.");
+      }
+      return;
+    }
+    transaction.set(reference, {
+      version: 1,
+      key: encodeVaultBytes(recoveryKey),
     });
   });
 }

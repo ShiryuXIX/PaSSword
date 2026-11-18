@@ -6,13 +6,19 @@ antes de sincronizarlo y no depende de la web ni de Firebase Hosting.
 
 ## Estado
 
-- La interfaz nativa, el inicio con Google, el desbloqueo con huella/PIN del
-  teléfono o con un PIN propio de PaSSword, el cifrado compatible con la web y
-  las operaciones de credenciales están implementados.
-- La contraseña maestra queda como recuperación manual. El PIN propio tiene
-  cuatro cifras y protege localmente la llave de la bóveda; no la sustituye.
-- Al crear la bóveda o configurar por primera vez este dispositivo, se activa
-  al menos una opción local de desbloqueo.
+- La interfaz nativa, el inicio con Google, la recuperación automática de la
+  llave y el cifrado compatible con Windows están implementados. Los PIN y
+  llaves biométricas que queden en instalaciones anteriores solo se mantienen
+  como opciones transitorias para bóvedas heredadas.
+- Las bóvedas nuevas generan una llave aleatoria y la guardan en Firestore para
+  que cada inicio de sesión de Google pueda recuperar la bóveda. Firebase y
+  quienes administren el proyecto pueden acceder a esa llave y, por tanto,
+  descifrar las credenciales; esto ya no ofrece secreto criptográfico frente al
+  administrador del proyecto.
+- Las bóvedas antiguas necesitan una verificación válida una vez para guardar
+  su llave en Firebase: se puede usar la clave maestra o el PIN/biometría local
+  ya configurados. Sin la clave ni un desbloqueo local válido, la bóveda antigua
+  no se puede migrar ni recuperar.
 - El identificador de acceso acepta un email o nombre de usuario; solo exige
   que el campo no esté vacío.
 - La app Firebase Android de depuración `password.app.dev` ya está registrada;
@@ -34,10 +40,16 @@ antes de sincronizarlo y no depende de la web ni de Firebase Hosting.
   local del dispositivo.
 - Desde el detalle de un acceso con email se puede abrir Have I Been Pwned
   manualmente. PaSSword no envía el correo: la persona lo escribe en la página.
+- El detalle separa email, contraseña, aviso de exposición y consulta manual
+  del email. En el formulario de alta/edición, la contraseña se puede ver,
+  generar y copiar; la versión aparece al final del menú de opciones.
 - Esta consulta cubre los datos conocidos por HIBP y no equivale a rastrear
   todas las filtraciones o la dark web.
-- Tras estos cambios, falta validar en un teléfono la pantalla de desbloqueo,
-  el PIN propio de PaSSword y la recuperación con la contraseña maestra.
+- La bóveda se abre automáticamente tras iniciar sesión con Google cuando ya
+  tiene una llave de recuperación guardada.
+- Antes de crear o migrar bóvedas, despliega las reglas actualizadas de
+  Firestore desde la raíz del proyecto con `firebase deploy --only firestore:rules`.
+  Si no están desplegadas, Firestore rechazará la operación.
 
 ## Configuración Firebase y Google
 

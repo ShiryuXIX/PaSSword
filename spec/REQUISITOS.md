@@ -15,18 +15,20 @@ Estos requisitos se derivan de `gestor.md` en la raíz del workspace. Son el alc
 ## Cuenta y bóveda
 
 - Inicio de sesión con Google mediante Firebase Authentication, compatible con navegadores restrictivos y sin reutilizar credenciales de otro proyecto.
-- Cifrar en el cliente los sitios, emails y contraseñas antes de persistirlos. Usar criptografía estándar autenticada, nonces y claves aleatorios criptográficamente y derivación de claves con sal aleatoria.
+- Cifrar en el cliente los sitios, emails y contraseñas antes de persistirlos. Usar criptografía estándar autenticada, nonces y llaves aleatorios criptográficamente.
 - No usar Google Login, una API key de Firebase ni una URL compartida como clave de cifrado.
-- No almacenar la contraseña maestra ni datos descifrados en Firestore, almacenamiento local, logs o mensajes de error. Tras introducirla por primera vez en un dispositivo, se puede conservar la clave AES-GCM no exportable en el almacenamiento local seguro, vinculada al UID; solo se reutiliza después de autenticar con Google. La clave activa en memoria se borra al cerrar sesión o bloquear la bóveda.
-- Bloquear la bóveda y cerrar sesión tras 5 minutos de inactividad. En un dispositivo ya configurado, volver a iniciar sesión con Google permite reutilizar la clave local; cada navegador o dispositivo nuevo requiere la contraseña maestra una vez. Informar de los riesgos del almacenamiento local y permitir olvidar la clave de este navegador.
+- En las bóvedas nuevas, guardar la llave AES aleatoria en `users/{uid}/vault/recovery` para recuperarla al iniciar sesión con Google. Firebase y los administradores del proyecto pueden leerla y descifrar los accesos; informar claramente de este límite. La llave no se puede sustituir ni borrar desde el cliente.
+- Migrar las bóvedas existentes solo después de verificar la llave actual. En Android se permite la clave maestra o un desbloqueo local válido; en Windows se requiere la clave maestra porque las llaves locales no son exportables.
+- No almacenar datos descifrados en Firestore, almacenamiento local, logs o mensajes de error. La llave activa en memoria se borra al cerrar sesión o bloquear la bóveda.
+- Bloquear la bóveda y cerrar sesión tras 5 minutos de inactividad. Al volver a iniciar sesión con Google, las bóvedas nuevas o migradas recuperan la llave desde Firestore. Informar de los riesgos del almacenamiento local.
 - Proteger operaciones de compartir, exportar, copiar y eliminar. No incluir secretos en URLs, telemetría ni notificaciones.
-- Aplicar reglas Firestore de mínimo privilegio que validen identidad y permisos por operación. La interfaz no es una frontera de seguridad; no permitir acceso público.
+- Aplicar reglas Firestore de mínimo privilegio que validen identidad y permisos por operación. El documento de recuperación solo puede crearse una vez por el propietario; no permitir lecturas de otras cuentas, actualizaciones, borrados ni acceso público.
 - Compartir únicamente credenciales concretas entre usuarios autenticados y autorizados. El destinatario debe aceptar expresamente y recibir acceso mediante un flujo seguro de claves, nunca claves o secretos en claro. Documentar que no es posible revocar copias ya descifradas o guardadas.
 - Si no se puede diseñar, implementar y validar compartir con cifrado seguro, no implementarlo con alternativas inseguras: presentar la limitación y solicitar decisión.
 
 ## Offline y sincronización
 
-- Habilitar persistencia offline de Firestore siguiendo el SDK elegido; solo persistir documentos cifrados.
+- Habilitar persistencia offline de Firestore siguiendo el SDK elegido; cifrar las credenciales y documentar que la llave recuperable y los metadatos no son secreto frente al administrador del proyecto.
 - Permitir consultar y editar offline credenciales ya desbloqueadas previamente en ese dispositivo.
 - Al recuperar conexión, sincronizar cambios e informar escrituras pendientes o fallidas. Las ediciones concurrentes siguen la política elegida por el propietario: last-write-wins; una edición antigua que se sincronice después puede sobrescribir una más reciente.
 - Distinguir los estados sincronizado, pendiente y error. El login de Google y el primer acceso/descifrado pueden requerir conexión.

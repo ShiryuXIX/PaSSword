@@ -180,6 +180,37 @@ input:focus-visible {
   gap: 12px;
 }
 
+.header-sync-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #b7d98f;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.header-sync-status svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+}
+
+#header-sync-check {
+  display: none;
+}
+
+.header-sync-status[data-kind="synced"] #header-sync-check {
+  display: initial;
+}
+
+.header-sync-status[data-kind="pending"] {
+  color: #c9eb87;
+}
+
+.header-sync-status[data-kind="error"] {
+  color: var(--error);
+}
+
 .account-menu {
   position: relative;
 }
@@ -249,6 +280,15 @@ input:focus-visible {
 
 .account-menu-list .text-button:hover {
   color: #d0e7bb;
+}
+
+.account-menu-version {
+  margin: 6px 6px 0;
+  padding: 10px 4px 4px;
+  border-top: 1px solid #35373b;
+  color: #899596;
+  font-size: 10px;
+  text-align: center;
 }
 
 .workspace {
@@ -539,6 +579,16 @@ h1 span {
 
 .list-toolbar.is-empty {
   grid-template-columns: minmax(0, 1fr);
+}
+
+.list-toolbar.is-empty .list-toolbar-spacer {
+  display: none;
+}
+
+.list-controls {
+  display: grid;
+  align-content: start;
+  min-width: 0;
 }
 
 .search-box {
@@ -988,17 +1038,22 @@ h1 span {
 }
 
 .password-entry {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  display: grid;
+  gap: 8px;
 }
 
 .password-entry input {
-  flex: 1 1 auto;
   min-width: 0;
 }
 
-.password-entry .generate-password {
+.password-entry-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.password-entry-actions .text-button {
   display: inline-flex;
   min-height: 38px;
   flex: 0 0 auto;
@@ -1012,15 +1067,8 @@ h1 span {
   height: 16px;
 }
 
-.password-entry .password-visibility {
-  display: inline-flex;
-  min-height: 38px;
-  align-items: center;
-  gap: 5px;
-  white-space: nowrap;
-}
-
-.password-visibility svg {
+.password-visibility svg,
+.copy-password svg {
   width: 17px;
   height: 17px;
 }
@@ -1169,12 +1217,21 @@ h1 span {
     display: block;
   }
 
+  .list-toolbar-spacer {
+    display: none;
+  }
+
   .search-box {
     width: auto;
   }
 
   .search-box kbd {
     display: none;
+  }
+
+  .header-sync-status {
+    gap: 5px;
+    font-size: 10px;
   }
 
   .content-grid {
@@ -1563,7 +1620,7 @@ input:focus-visible {
 }
 
 .password-exposure-banner {
-  margin: 0 0 16px;
+  margin: 0 0 12px;
   padding: 12px 15px;
   border: 1px solid rgb(240 162 155 / 42%);
   border-left: 3px solid var(--error);
@@ -1575,9 +1632,10 @@ input:focus-visible {
 }
 
 .password-exposure-caption {
-  margin: -5px 0 14px;
+  margin: 11px 0 7px;
   color: var(--muted);
   font-size: 11px;
+  line-height: 1.45;
 }
 
 .password-exposure-banner[data-kind="checking"] {

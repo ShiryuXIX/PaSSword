@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 const vaultKdfName = 'PBKDF2-SHA-256';
 const vaultPbkdf2Iterations = 600000;
+const vaultRecoveryKeyMode = 'RANDOM-AES-256';
 
 class VaultMetadata {
   const VaultMetadata({
@@ -20,9 +21,12 @@ class VaultMetadata {
   final Map<String, Object?> raw;
 
   factory VaultMetadata.fromMap(Map<String, Object?> data) {
-    if (data['version'] != 1 ||
-        data['kdf'] != vaultKdfName ||
-        data['iterations'] != vaultPbkdf2Iterations) {
+    final isLegacyKey =
+        data['kdf'] == vaultKdfName &&
+        data['iterations'] == vaultPbkdf2Iterations;
+    final isRecoveryKey =
+        data['kdf'] == vaultRecoveryKeyMode && data['iterations'] == 0;
+    if (data['version'] != 1 || (!isLegacyKey && !isRecoveryKey)) {
       throw const FormatException(
         'La configuración de esta bóveda no es compatible.',
       );

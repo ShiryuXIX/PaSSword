@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:open_filex/open_filex.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_controller.dart';
@@ -351,63 +352,30 @@ class _VaultAccessScreen extends StatefulWidget {
 class _VaultAccessScreenState extends State<_VaultAccessScreen> {
   final _formKey = GlobalKey<FormState>();
   final _password = TextEditingController();
-  final _confirmation = TextEditingController();
-  final _pin = TextEditingController();
-  final _pinConfirmation = TextEditingController();
   final _unlockPin = TextEditingController();
   bool _showPassword = false;
   bool _showRecovery = false;
-  bool _enableBiometrics = false;
-  bool _enablePin = false;
-  String? _unlockSetupError;
   bool _submitting = false;
 
   @override
   void dispose() {
     _password.dispose();
-    _confirmation.dispose();
-    _pin.dispose();
-    _pinConfirmation.dispose();
     _unlockPin.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) {
+    if (!widget.create && !_formKey.currentState!.validate()) {
       return;
     }
-    if (!(widget.controller.hasBiometricKey &&
-            widget.controller.biometricAvailable) &&
-        !widget.controller.hasPinKey &&
-        !_enableBiometrics &&
-        !_enablePin) {
-      setState(
-        () => _unlockSetupError =
-            'Activa la huella o PIN del teléfono, o crea un PIN de PaSSword.',
-      );
-      return;
-    }
-    _unlockSetupError = null;
     setState(() => _submitting = true);
     try {
       if (widget.create) {
-        await widget.controller.createVault(
-          password: _password.text,
-          confirmation: _confirmation.text,
-          enableBiometrics: _enableBiometrics,
-          pin: _enablePin ? _pin.text : null,
-        );
+        await widget.controller.createVault();
       } else {
-        await widget.controller.unlockWithPassword(
-          password: _password.text,
-          enableBiometrics: _enableBiometrics,
-          pin: _enablePin ? _pin.text : null,
-        );
+        await widget.controller.unlockWithPassword(password: _password.text);
       }
       _password.clear();
-      _confirmation.clear();
-      _pin.clear();
-      _pinConfirmation.clear();
     } finally {
       if (mounted) {
         setState(() => _submitting = false);
@@ -431,9 +399,9 @@ class _VaultAccessScreenState extends State<_VaultAccessScreen> {
   Widget build(BuildContext context) {
     final controller = widget.controller;
     final showPasswordForm =
-        widget.create ||
-        (!controller.hasBiometricKey && !controller.hasPinKey) ||
-        _showRecovery;
+        !widget.create &&
+        ((!controller.hasBiometricKey && !controller.hasPinKey) ||
+            _showRecovery);
     final showBiometric =
         !widget.create &&
         controller.hasBiometricKey &&
@@ -475,8 +443,8 @@ class _VaultAccessScreenState extends State<_VaultAccessScreen> {
                   else if (showPasswordForm)
                     Text(
                       _showRecovery
-                          ? 'Recupera el acceso con tu contraseña maestra.'
-                          : 'Introduce tu contraseña maestra para abrir la bóveda.',
+                          ? 'Introduce la clave antigua una vez para activar la recuperación con Google.'
+                          : 'Introduce la clave antigua de esta bóveda para continuar.',
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         color: AppTheme.muted,
@@ -486,7 +454,7 @@ class _VaultAccessScreenState extends State<_VaultAccessScreen> {
                   if (widget.create) ...[
                     const SizedBox(height: 10),
                     const Text(
-                      'Google identificó tu cuenta. Crea una contraseña maestra que solo tú conozcas.',
+                      'Google identificó tu cuenta. La llave de la bóveda se guardará en Firebase para abrirla automáticamente al iniciar sesión. Esto permite recuperar tus datos, pero el administrador del proyecto Firebase también puede acceder a la llave.',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: AppTheme.muted, height: 1.5),
                     ),
@@ -535,12 +503,21 @@ class _VaultAccessScreenState extends State<_VaultAccessScreen> {
                         setState(() => _showRecovery = true);
                       },
                       icon: const Icon(Icons.key_outlined),
-                      label: const Text('Recuperar con contraseña maestra'),
+                      label: const Text('Activar recuperación con Google'),
                     ),
                   ],
                   if (controller.errorMessage != null) ...[
                     const SizedBox(height: 18),
                     _MessageBanner(message: controller.errorMessage!),
+                  ],
+                  if (widget.create) ...[
+                    const SizedBox(height: 24),
+                    FilledButton(
+                      onPressed: _submitting ? null : _submit,
+                      child: Text(
+                        _submitting ? 'Creando…' : 'Crear bóveda con Google',
+                      ),
+                    ),
                   ],
                   if (showPasswordForm) ...[
                     if (showBiometric || showPin)
@@ -565,7 +542,7 @@ class _VaultAccessScreenState extends State<_VaultAccessScreen> {
                                 ? null
                                 : (_) => _submit(),
                             decoration: InputDecoration(
-                              labelText: 'Contraseña maestra',
+                              labelText: 'Clave antigua de la bóveda',
                               suffixIcon: IconButton(
                                 tooltip: _showPassword ? 'Ocultar' : 'Mostrar',
                                 onPressed: () => setState(
@@ -583,121 +560,19 @@ class _VaultAccessScreenState extends State<_VaultAccessScreen> {
                                 ? 'Usa al menos 12 caracteres.'
                                 : null,
                           ),
-                          if (widget.create) ...[
-                            const SizedBox(height: 14),
-                            TextFormField(
-                              controller: _confirmation,
-                              obscureText: true,
-                              autocorrect: false,
-                              enableSuggestions: false,
-                              textInputAction: TextInputAction.done,
-                              onFieldSubmitted: (_) => _submit(),
-                              decoration: const InputDecoration(
-                                labelText: 'Repite la contraseña maestra',
-                              ),
-                              validator: (value) =>
-                                  value == null ||
-                                      value.isEmpty ||
-                                      value != _password.text
-                                  ? 'Las contraseñas no coinciden.'
-                                  : null,
-                            ),
-                          ],
-                          if (controller.biometricAvailable &&
-                              !controller.hasBiometricKey) ...[
-                            const SizedBox(height: 10),
-                            CheckboxListTile(
-                              contentPadding: EdgeInsets.zero,
-                              value: _enableBiometrics,
-                              onChanged: (value) => setState(() {
-                                _enableBiometrics = value ?? false;
-                                _unlockSetupError = null;
-                              }),
-                              title: const Text(
-                                'Activar huella o PIN del teléfono',
-                              ),
-                              subtitle: const Text(
-                                'También puede usarse el PIN de pantalla configurado en Android.',
-                              ),
-                              controlAffinity: ListTileControlAffinity.leading,
-                            ),
-                          ],
-                          if (!controller.hasPinKey) ...[
-                            const SizedBox(height: 4),
-                            CheckboxListTile(
-                              contentPadding: EdgeInsets.zero,
-                              value: _enablePin,
-                              onChanged: (value) => setState(() {
-                                _enablePin = value ?? false;
-                                _unlockSetupError = null;
-                              }),
-                              title: const Text('Crear un PIN de PaSSword'),
-                              subtitle: const Text(
-                                'PIN propio de 4 cifras para este dispositivo.',
-                              ),
-                              controlAffinity: ListTileControlAffinity.leading,
-                            ),
-                            if (_enablePin) ...[
-                              const SizedBox(height: 8),
-                              TextFormField(
-                                controller: _pin,
-                                obscureText: true,
-                                keyboardType: TextInputType.number,
-                                maxLength: 4,
-                                inputFormatters: [
-                                  FilteringTextInputFormatter.digitsOnly,
-                                ],
-                                decoration: const InputDecoration(
-                                  labelText: 'PIN de PaSSword',
-                                  counterText: '',
-                                ),
-                                validator: (value) =>
-                                    _enablePin &&
-                                        (value == null ||
-                                            !RegExp(r'^\d{4}$').hasMatch(value))
-                                    ? 'Escribe 4 cifras.'
-                                    : null,
-                              ),
-                              const SizedBox(height: 10),
-                              TextFormField(
-                                controller: _pinConfirmation,
-                                obscureText: true,
-                                keyboardType: TextInputType.number,
-                                maxLength: 4,
-                                inputFormatters: [
-                                  FilteringTextInputFormatter.digitsOnly,
-                                ],
-                                decoration: const InputDecoration(
-                                  labelText: 'Repite el PIN de PaSSword',
-                                  counterText: '',
-                                ),
-                                validator: (value) =>
-                                    _enablePin &&
-                                        (value == null || value != _pin.text)
-                                    ? 'Los PIN no coinciden.'
-                                    : null,
-                              ),
-                            ],
-                          ],
                           const SizedBox(height: 12),
                           Text(
-                            'Google no puede restablecer la contraseña maestra. Guárdala en un lugar seguro.',
+                            'Esta bóveda es anterior a la recuperación con Google. Al introducir la clave, se guardará su llave en Firebase para recuperarla al iniciar sesión.',
                             style: Theme.of(context).textTheme.bodySmall
                                 ?.copyWith(color: AppTheme.muted, height: 1.45),
                           ),
-                          if (_unlockSetupError != null) ...[
-                            const SizedBox(height: 12),
-                            _MessageBanner(message: _unlockSetupError!),
-                          ],
                           const SizedBox(height: 22),
                           FilledButton(
                             onPressed: _submitting ? null : _submit,
                             child: Text(
                               _submitting
                                   ? 'Comprobando…'
-                                  : widget.create
-                                  ? 'Crear bóveda'
-                                  : 'Desbloquear',
+                                  : 'Abrir y activar recuperación',
                             ),
                           ),
                           if (_showRecovery) ...[
@@ -751,11 +626,35 @@ class _VaultScreen extends StatefulWidget {
 class _VaultScreenState extends State<_VaultScreen> {
   final _search = TextEditingController();
   String _filter = '';
+  String _appVersion = '';
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadAppVersion());
+  }
 
   @override
   void dispose() {
     _search.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadAppVersion() async {
+    try {
+      final packageInfo = await PackageInfo.fromPlatform();
+      if (mounted) {
+        setState(() => _appVersion = packageInfo.version);
+      }
+    } on PlatformException {
+      if (mounted) {
+        _showFeedback('No se pudo leer la versión de PaSSword.');
+      }
+    } on MissingPluginException {
+      if (mounted) {
+        _showFeedback('No está disponible la información de versión.');
+      }
+    }
   }
 
   List<VaultCredential> _filtered(List<VaultCredential> items) {
@@ -1008,38 +907,8 @@ class _VaultScreenState extends State<_VaultScreen> {
           PopupMenuButton<String>(
             tooltip: 'Opciones de cuenta',
             onSelected: _showAccountMenu,
-            itemBuilder: (context) => const [
-              PopupMenuItem(
-                value: 'security',
-                child: Row(
-                  children: [
-                    Icon(Icons.security_outlined, size: 20),
-                    SizedBox(width: 12),
-                    Text('Desbloqueo'),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: 'changePassword',
-                child: Row(
-                  children: [
-                    Icon(Icons.key_outlined, size: 20),
-                    SizedBox(width: 12),
-                    Text('Cambiar contraseña maestra'),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: 'forget',
-                child: Row(
-                  children: [
-                    Icon(Icons.delete_outline, size: 20),
-                    SizedBox(width: 12),
-                    Text('Olvidar este dispositivo'),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
+            itemBuilder: (context) => [
+              const PopupMenuItem(
                 value: 'signOut',
                 child: Row(
                   children: [
@@ -1047,6 +916,13 @@ class _VaultScreenState extends State<_VaultScreen> {
                     SizedBox(width: 12),
                     Text('Bloquear y cerrar sesión'),
                   ],
+                ),
+              ),
+              const PopupMenuDivider(),
+              PopupMenuItem<String>(
+                enabled: false,
+                child: Text(
+                  _appVersion.isEmpty ? 'PaSSword' : 'PaSSword v$_appVersion',
                 ),
               ),
             ],
@@ -1333,18 +1209,7 @@ class _CredentialDetailsState extends State<_CredentialDetails> {
                 ),
               ],
             ),
-            if (RegExp(r'^[^\s@]+@[^\s@]+$').hasMatch(item.email)) ...[
-              const SizedBox(height: 4),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton.icon(
-                  onPressed: widget.onCheckEmail,
-                  icon: const Icon(Icons.open_in_new),
-                  label: const Text('Comprobar exposición del correo'),
-                ),
-              ),
-            ],
-            const SizedBox(height: 14),
+            const Divider(height: 24),
             const Text('Contraseña', style: TextStyle(color: AppTheme.muted)),
             const SizedBox(height: 5),
             Row(
@@ -1378,6 +1243,17 @@ class _CredentialDetailsState extends State<_CredentialDetails> {
               _MessageBanner(
                 message:
                     'Esta contraseña aparece ${widget.exposureCount} veces en filtraciones conocidas. Cámbiala en ese servicio y no la reutilices.',
+              ),
+            ],
+            if (RegExp(r'^[^\s@]+@[^\s@]+$').hasMatch(item.email)) ...[
+              const Divider(height: 24),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: widget.onCheckEmail,
+                  icon: const Icon(Icons.open_in_new),
+                  label: const Text('Comprobar exposición del correo'),
+                ),
               ),
             ],
           ],

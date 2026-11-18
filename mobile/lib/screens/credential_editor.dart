@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 class CredentialEditor extends StatefulWidget {
   const CredentialEditor({
@@ -68,6 +69,37 @@ class _CredentialEditorState extends State<CredentialEditor> {
       password[swap] = current;
     }
     return password.join();
+  }
+
+  Future<void> _copyPassword() async {
+    if (_password.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Escribe una contraseña antes de copiarla.'),
+        ),
+      );
+      return;
+    }
+
+    try {
+      await Clipboard.setData(ClipboardData(text: _password.text));
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Contraseña copiada.')));
+      }
+    } on PlatformException {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No se pudo copiar la contraseña.')),
+        );
+      }
+    } on MissingPluginException {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('El portapapeles no está disponible.')),
+        );
+      }
+    }
   }
 
   Future<void> _submit() async {
@@ -161,38 +193,43 @@ class _CredentialEditorState extends State<CredentialEditor> {
                   obscureText: !_showPassword,
                   autocorrect: false,
                   enableSuggestions: false,
-                  decoration: InputDecoration(
+                  decoration: const InputDecoration(
                     labelText: 'Contraseña',
-                    prefixIcon: const Icon(Icons.key_outlined),
-                    suffixIcon: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          tooltip: 'Generar contraseña segura',
-                          onPressed: () {
-                            setState(() {
-                              _password.text = _generatePassword();
-                              _showPassword = true;
-                            });
-                          },
-                          icon: const Icon(Icons.auto_awesome_outlined),
-                        ),
-                        IconButton(
-                          tooltip: _showPassword ? 'Ocultar' : 'Mostrar',
-                          onPressed: () =>
-                              setState(() => _showPassword = !_showPassword),
-                          icon: Icon(
-                            _showPassword
-                                ? Icons.visibility_off_outlined
-                                : Icons.visibility_outlined,
-                          ),
-                        ),
-                      ],
-                    ),
+                    prefixIcon: Icon(Icons.key_outlined),
                   ),
                   validator: (value) => value == null || value.isEmpty
                       ? 'Escribe una contraseña.'
                       : null,
+                ),
+                Wrap(
+                  spacing: 4,
+                  children: [
+                    TextButton.icon(
+                      onPressed: () =>
+                          setState(() => _showPassword = !_showPassword),
+                      icon: Icon(
+                        _showPassword
+                            ? Icons.visibility_off_outlined
+                            : Icons.visibility_outlined,
+                      ),
+                      label: Text(_showPassword ? 'Ocultar' : 'Ver'),
+                    ),
+                    TextButton.icon(
+                      onPressed: () {
+                        setState(() {
+                          _password.text = _generatePassword();
+                          _showPassword = true;
+                        });
+                      },
+                      icon: const Icon(Icons.auto_awesome_outlined),
+                      label: const Text('Generar'),
+                    ),
+                    TextButton.icon(
+                      onPressed: _copyPassword,
+                      icon: const Icon(Icons.copy_outlined),
+                      label: const Text('Copiar'),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 24),
                 FilledButton(

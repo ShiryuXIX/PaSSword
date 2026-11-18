@@ -68,6 +68,9 @@ class FirebaseService {
   DocumentReference<Map<String, dynamic>> _metadataRef(String uid) =>
       _firestore.doc('users/$uid/vault/meta');
 
+  DocumentReference<Map<String, dynamic>> _recoveryKeyRef(String uid) =>
+      _firestore.doc('users/$uid/vault/recovery');
+
   CollectionReference<Map<String, dynamic>> _credentialsRef(String uid) =>
       _firestore.collection('users/$uid/credentials');
 
@@ -89,26 +92,123 @@ class FirebaseService {
     }
   }
 
+  Future<Uint8List?> readRecoveryKey(String uid) async {
+    final reference = _recoveryKeyRef(uid);
+    try {
+      final snapshot = await reference.get(
+        const GetOptions(source: Source.server),
+      );
+      return snapshot.exists ? decodeRecoveryKey(snapshot.data()) : null;
+    } on FirebaseException catch (error) {
+      if (error.code != 'unavailable' && error.code != 'deadline-exceeded') {
+        rethrow;
+      }
+      final snapshot = await reference.get(
+        const GetOptions(source: Source.cache),
+      );
+      return snapshot.exists ? decodeRecoveryKey(snapshot.data()) : null;
+    }
+  }
+
+  static Uint8List decodeRecoveryKey(Map<String, dynamic>? data) {
+    if (data == null ||
+        data.length != 2 ||
+        data['version'] != 1 ||
+        data['key'] is! String ||
+        !RegExp(r'^[A-Za-z0-9+/]{43}=$').hasMatch(data['key'] as String)) {
+      throw const FormatException(
+        'La llave de recuperación de Google está dañada o no es compatible.',
+      );
+    }
+    final key = Uint8List.fromList(base64Decode(data['key']! as String));
+    if (key.length != 32) {
+      key.fillRange(0, key.length, 0);
+      throw const FormatException(
+        'La llave de recuperación de Google tiene un tamaño no válido.',
+      );
+    }
+    return key;
+  }
+
   Future<void> createMetadata({
     required String uid,
     required Uint8List salt,
     required Map<String, String> verifier,
+    required Uint8List recoveryKey,
   }) async {
+    if (recoveryKey.length != 32) {
+      throw ArgumentError.value(
+        recoveryKey.length,
+        'recoveryKey',
+        'La llave debe tener 32 bytes.',
+      );
+    }
     final reference = _metadataRef(uid);
+    final recoveryReference = _recoveryKeyRef(uid);
     await _firestore.runTransaction((transaction) async {
       final existing = await transaction.get(reference);
-      if (existing.exists) {
+      final existingRecoveryKey = await transaction.get(recoveryReference);
+      if (existing.exists || existingRecoveryKey.exists) {
         throw StateError(
           'La bóveda ya existe. Vuelve a cargarla e intenta desbloquearla.',
         );
       }
       transaction.set(reference, {
         'version': 1,
-        'kdf': vaultKdfName,
-        'iterations': vaultPbkdf2Iterations,
+        'kdf': vaultRecoveryKeyMode,
+        'iterations': 0,
         'keyGeneration': 1,
         'salt': base64Encode(salt),
         'verifier': verifier,
+      });
+      transaction.set(recoveryReference, {
+        'version': 1,
+        'key': base64Encode(recoveryKey),
+      });
+    });
+  }
+
+  Future<void> saveRecoveryKeyIfAbsent(
+    String uid,
+    Uint8List recoveryKey, {
+    required Map<String, Object?> expectedMetadata,
+  }) async {
+    if (recoveryKey.length != 32) {
+      throw ArgumentError.value(
+        recoveryKey.length,
+        'recoveryKey',
+        'La llave debe tener 32 bytes.',
+      );
+    }
+    final reference = _recoveryKeyRef(uid);
+    final metadataReference = _metadataRef(uid);
+    await _firestore.runTransaction((transaction) async {
+      final metadataSnapshot = await transaction.get(metadataReference);
+      final existing = await transaction.get(reference);
+      final currentMetadata = metadataSnapshot.data();
+      if (currentMetadata == null ||
+          !_matchesMetadata(currentMetadata, expectedMetadata) ||
+          currentMetadata['rotationInProgress'] == true) {
+        throw StateError(
+          'La bóveda cambió mientras se activaba la recuperación. Recárgala e inténtalo de nuevo.',
+        );
+      }
+      if (existing.exists) {
+        final storedKey = decodeRecoveryKey(existing.data());
+        try {
+          if (!_keysMatch(storedKey, recoveryKey)) {
+            throw StateError(
+              'Ya hay una llave de recuperación distinta para esta cuenta.',
+            );
+          }
+        } finally {
+          storedKey.fillRange(0, storedKey.length, 0);
+        }
+        return;
+      }
+      transaction.set(reference, {
+        'version': 1,
+        'key': base64Encode(recoveryKey),
       });
     });
   }
@@ -279,6 +379,17 @@ class FirebaseService {
         expectedVerifier is Map &&
         currentVerifier['iv'] == expectedVerifier['iv'] &&
         currentVerifier['ciphertext'] == expectedVerifier['ciphertext'];
+  }
+
+  bool _keysMatch(Uint8List first, Uint8List second) {
+    if (first.length != second.length) {
+      return false;
+    }
+    var difference = 0;
+    for (var index = 0; index < first.length; index++) {
+      difference |= first[index] ^ second[index];
+    }
+    return difference == 0;
   }
 
   String createRotationId() {

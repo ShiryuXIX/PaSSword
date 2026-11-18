@@ -17,6 +17,8 @@ class VaultCrypto {
 
   static Uint8List createSalt() => _randomBytes(16);
 
+  static Uint8List createVaultKey() => _randomBytes(32);
+
   static String normalizeMasterPassword(String password) =>
       unorm.nfkc(password);
 

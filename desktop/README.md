@@ -5,8 +5,11 @@ servidor local ligado a `localhost:43183`. Mantiene ese origen fijo para que
 Firebase Authentication, Firestore offline y la llave recordada en IndexedDB
 se conserven entre aperturas. Si el puerto está ocupado, la app informa el
 problema y no cambia a un origen temporal. No abre la web pública de PaSSword.
-El código de la interfaz y el SDK de Firebase se empaquetan localmente. Los datos
-se cifran en el cliente; Firestore solo sincroniza documentos cifrados.
+El código de la interfaz y el SDK de Firebase se empaquetan localmente. Los
+accesos se cifran en el cliente antes de sincronizarse. La llave de recuperación
+se guarda también en Firestore para permitir el inicio automático con Google;
+Firebase y las personas con acceso administrativo al proyecto pueden recuperar
+esa llave y descifrar los accesos.
 
 ## Desarrollo
 
@@ -93,6 +96,10 @@ Las compilaciones de desarrollo no comprueban Releases. El workflow valida que
 el instalador indicado en `latest.yml` tenga el mismo nombre que el archivo
 subido a la Release para evitar enlaces de actualización rotos.
 
+El estado de sincronización y la versión se muestran, respectivamente, junto a
+la cuenta y al final del menú de opciones. En el formulario de alta/edición, la
+contraseña se puede ver, generar y copiar.
+
 Para publicar una actualización de escritorio, aumenta `version` en
 `package.json` siguiendo la secuencia indicada abajo y sube los cambios a
 `main`. No se crea una Release si esa versión ya se publicó. La primera
@@ -108,14 +115,19 @@ secuencia (por ejemplo, `0.2.0` para mostrar `0.2`).
 ## Límites de esta primera fase
 
 - La app de escritorio comparte el cliente Firestore y el esquema cifrado con
-  Flutter. El PIN de cuatro cifras solo protege este PC; no sustituye la clave
-  de recuperación que se necesita al configurar un equipo nuevo. La llave
-  local se guarda en IndexedDB y el PIN se protege con el almacenamiento seguro
-  de Windows.
-- Después de iniciar sesión con Google, la bóveda se abre con el PIN local.
-  Puedes cambiarlo desde las opciones de cuenta o elegir «He olvidado mi PIN»
-  e introducir la clave de recuperación para crear uno nuevo. Tras cinco
-  intentos incorrectos se aplica una pausa de 30 segundos.
+  Flutter. Las bóvedas nuevas se abren al iniciar sesión con Google porque la
+  llave se recupera desde Firestore. Esto permite también al administrador del
+  proyecto recuperar la llave y los accesos.
+- Las bóvedas creadas antes de esta versión requieren la clave antigua una vez
+  para guardar su llave de recuperación. Las llaves locales de Windows no son
+  exportables y no bastan para migrar; si se perdió la clave antigua, la bóveda
+  no se puede recuperar en un equipo nuevo.
+- Antes de crear o migrar bóvedas, despliega las reglas actualizadas de
+  Firestore desde la raíz del proyecto con `firebase deploy --only firestore:rules`.
+  Si no están desplegadas, Firestore rechazará la operación.
+- En una bóveda antigua que aún no se migró, pueden aparecer sus opciones
+  locales de desbloqueo. Para activar el acceso automático en todos los
+  dispositivos, inicia sesión con la clave antigua una vez.
 - La app no se bloquea automáticamente por inactividad; usa «Cerrar sesión»
   cuando quieras terminar la sesión.
 - El SDK queda incluido en el instalador; la app solo se conecta a
@@ -124,6 +136,9 @@ secuencia (por ejemplo, `0.2.0` para mostrar `0.2`).
   al detectar cambios. Usa Pwned Passwords con k-anonimato: solo envía por
   HTTPS los cinco primeros caracteres del hash SHA-1, nunca la contraseña ni
   el hash completo. Los resultados se guardan localmente y no se sincronizan.
+- La lista muestra «Tus accesos» y alinea el aviso de Huella digital con el
+  campo de búsqueda. El detalle separa los campos y permite consultar el email
+  manualmente en Have I Been Pwned.
 - El detalle de un acceso con email permite abrir Have I Been Pwned tras una
   confirmación. PaSSword no envía ni precompleta el correo; se escribe en la
   página externa. La cobertura depende de los datos conocidos por HIBP y no
@@ -131,8 +146,8 @@ secuencia (por ejemplo, `0.2.0` para mostrar `0.2`).
 - El puerto local `43183` debe estar libre. No lo cambies sin migrar antes los
   datos locales, ya que el origen aloja la sesión de Firebase y las llaves de
   IndexedDB.
-- El desbloqueo con huella corresponde a la APK; en esta versión de escritorio
-  se usa un PIN local.
+- Las opciones de PIN y biometría solo se conservan para desbloqueos locales de
+  bóvedas heredadas; las bóvedas nuevas usan el inicio con Google.
 - La interfaz muestra códigos de error de OAuth/Firebase conocidos y guarda la
   fecha, la etapa del flujo, el código, el tipo genérico y, cuando existe, un
   detalle técnico limitado a códigos HTTP o de red en

@@ -58,6 +58,8 @@ const biometricSetupError = document.querySelector("#biometric-setup-error");
 const confirmBiometricSetupButton = document.querySelector("#confirm-biometric-setup");
 const toast = document.querySelector("#toast");
 const exposureBanner = document.querySelector("#password-exposure-banner");
+const headerSyncStatus = document.querySelector("#header-sync-status");
+const headerSyncLabel = document.querySelector("#header-sync-label");
 const searchInput = document.querySelector("#search-input");
 const passwordInput = document.querySelector("#password-input");
 const passwordVisibilityButton = document.querySelector("#toggle-password-visibility");
@@ -208,20 +210,20 @@ function setVaultFormMode(mode, message = "") {
   accountActions.hidden = !currentUser;
   forgetDeviceKeyButton.hidden = !currentUser || !hasRememberedVaultKey;
   vaultForm.hidden = !currentUser || mode === "loading";
-  const isRecoveryMode = mode === "create" || mode === "unlock";
+  const isRecoveryMode = mode === "unlock";
   const isPinMode = mode === "pin-create" || mode === "pin-unlock";
   const masterPasswordNote = document.querySelector("#master-password-note");
   masterPasswordField.hidden = !isRecoveryMode;
   masterPasswordInput.required = isRecoveryMode;
-  masterConfirmField.hidden = mode !== "create";
-  masterPasswordConfirm.required = mode === "create";
+  masterConfirmField.hidden = true;
+  masterPasswordConfirm.required = false;
   pinField.hidden = !isPinMode;
   pinInput.required = isPinMode;
   pinConfirmField.hidden = mode !== "pin-create";
   pinConfirmInput.required = mode === "pin-create";
   pinNote.hidden = !isPinMode;
-  pinRecoveryButton.hidden = mode !== "pin-unlock";
-  masterPasswordNote.hidden = isPinMode;
+  pinRecoveryButton.hidden = mode !== "pin-unlock" && mode !== "pin-create";
+  masterPasswordNote.hidden = isPinMode || mode === "create";
   biometricOption.hidden = true;
   biometricUnlockButton.hidden = true;
 
@@ -232,18 +234,17 @@ function setVaultFormMode(mode, message = "") {
 
   if (mode === "create") {
     title.textContent = "Configura PaSSword.";
-    formTitle.textContent = "Crea tu clave de recuperación";
-    formDescription.textContent = message || "La necesitarás para configurar PaSSword en otro dispositivo.";
-    masterPasswordInput.autocomplete = "new-password";
-    masterPasswordNote.textContent = "Conserva esta clave en un gestor seguro. La necesitarás en dispositivos que aún no tengan la llave local.";
-    submitText.textContent = "Crear clave";
+    formTitle.textContent = "Crea tu bóveda";
+    formDescription.textContent = message || "Google abrirá tu bóveda automáticamente. La llave se guardará en Firebase para poder recuperarla; el administrador del proyecto también podrá acceder a ella.";
+    masterPasswordInput.autocomplete = "off";
+    submitText.textContent = "Crear bóveda con Google";
   } else if (mode === "unlock") {
     title.textContent = "PaSSword te espera.";
-    formTitle.textContent = "Configura este dispositivo";
+    formTitle.textContent = "Activa la recuperación con Google";
     formDescription.textContent = message;
     masterPasswordInput.autocomplete = "current-password";
-    masterPasswordNote.textContent = "Introduce la clave de recuperación una vez para guardar una llave local protegida por tu PIN.";
-    submitText.textContent = "Continuar";
+    masterPasswordNote.textContent = "En bóvedas anteriores, introduce la clave antigua una vez para guardar la llave en Firebase. Después se abrirá con Google.";
+    submitText.textContent = "Abrir y activar recuperación";
   } else if (mode === "pin-create") {
     title.textContent = "PaSSword";
     formTitle.textContent = "Crea tu PIN";
@@ -258,6 +259,9 @@ function setVaultFormMode(mode, message = "") {
     masterPasswordInput.autocomplete = "current-password";
     document.querySelector("#pin-label").textContent = "PIN";
     submitText.textContent = "Desbloquear";
+    pinRecoveryButton.textContent = "Activar recuperación con Google";
+  } else if (mode === "pin-create") {
+    pinRecoveryButton.textContent = "Activar recuperación con Google";
   } else {
     title.textContent = "PaSSword";
   }
@@ -266,7 +270,7 @@ function setVaultFormMode(mode, message = "") {
 function updateSyncStatus() {
   const label = document.querySelector("#connection-label");
   const securityStatus = document.querySelector("#security-status");
-  changePinButton.hidden = !vaultKey;
+  changePinButton.hidden = true;
   configureBiometricButton.hidden = true;
   securityStatus.hidden = !vaultKey;
   configureBiometricLabel.textContent = hasBiometricVaultRecord
@@ -274,25 +278,28 @@ function updateSyncStatus() {
     : "Configurar desbloqueo del dispositivo";
   forgetDeviceKeyButton.hidden = !currentUser || !hasRememberedVaultKey;
 
+  let status;
+  let kind = "pending";
   if (!currentUser) {
-    label.textContent = firebaseClient ? "Esperando inicio de sesión" : "Preparando conexión segura…";
-    return;
-  }
-
-  if (!vaultKey) {
-    label.textContent = "Bóveda bloqueada";
-    return;
-  }
-
-  if (syncError) {
-    label.textContent = "Error de sincronización";
+    status = firebaseClient ? "Esperando inicio de sesión" : "Preparando conexión segura…";
+  } else if (!vaultKey) {
+    status = "Bóveda bloqueada";
+  } else if (syncError) {
+    status = "Error de sincronización";
+    kind = "error";
   } else if (!navigator.onLine) {
-    label.textContent = "Sin conexión; cambios pendientes";
+    status = "Sin conexión; cambios pendientes";
   } else if (pendingWriteCount > 0 || pendingDocumentCount > 0 || snapshotFromCache) {
-    label.textContent = "Cambios pendientes de sincronizar";
+    status = "Cambios pendientes de sincronizar";
   } else {
-    label.textContent = "Sincronizado";
+    status = "Sincronizado";
+    kind = "synced";
   }
+
+  label.textContent = status;
+  headerSyncLabel.textContent = status;
+  headerSyncStatus.hidden = !currentUser;
+  headerSyncStatus.dataset.kind = kind;
 }
 
 function clearVaultState() {
@@ -522,6 +529,28 @@ async function handleAuthState(user) {
       }
       currentVaultMetadata = metadata;
       if (metadata) {
+        const recoveryKey = await firebaseClient.readVaultRecoveryKey(user.uid);
+        if (currentUser?.uid !== user.uid) {
+          recoveryKey?.fill(0);
+          return;
+        }
+        if (recoveryKey) {
+          try {
+            const recoveredKey = await importVaultKeyMaterial(recoveryKey);
+            const verifier = firebaseClient.validateVaultVerifier(metadata);
+            if (!await verifyVaultKey(recoveredKey, user.uid, verifier)) {
+              throw new Error("La llave de recuperación de Google no coincide con esta bóveda.");
+            }
+            if (currentUser?.uid !== user.uid) {
+              return;
+            }
+            activateVaultKey(recoveredKey);
+            return;
+          } finally {
+            recoveryKey.fill(0);
+          }
+        }
+
         try {
           const [rememberedKey, biometricRecord] = await Promise.all([
             loadRememberedVaultKey(user.uid),
@@ -609,7 +638,11 @@ function trackPendingWrite(promise, errorMessage) {
 
 async function submitVault(event) {
   event.preventDefault();
-  if (!currentUser || !firebaseClient || !vaultForm.reportValidity()) {
+  if (
+    !currentUser
+    || !firebaseClient
+    || (vaultMode !== "create" && !vaultForm.reportValidity())
+  ) {
     return;
   }
 
@@ -617,13 +650,8 @@ async function submitVault(event) {
   const sessionId = vaultSessionId;
   const isCurrentSession = () => vaultSessionId === sessionId && currentUser?.uid === user.uid;
   const password = masterPasswordInput.value;
-  if (password.length < 12) {
-    showAuthMessage("La clave de recuperación debe tener al menos 12 caracteres.");
-    return;
-  }
-  if (vaultMode === "create" && password !== masterPasswordConfirm.value) {
-    showAuthMessage("Las claves de recuperación no coinciden.");
-    masterPasswordConfirm.focus();
+  if (vaultMode !== "create" && password.length < 12) {
+    showAuthMessage("La clave antigua debe tener al menos 12 caracteres.");
     return;
   }
 
@@ -632,16 +660,12 @@ async function submitVault(event) {
   let derivedKey;
   let keyMaterial;
   let metadataCreated = false;
-  const configureBiometric = biometricUnlockAvailable && enableBiometricInput.checked;
+  let recoveryWarning = "";
   try {
     if (vaultMode === "create") {
       const salt = createVaultSalt();
-      if (configureBiometric) {
-        keyMaterial = await deriveVaultKeyMaterial(password, salt);
-        derivedKey = await importVaultKeyMaterial(keyMaterial);
-      } else {
-        derivedKey = await deriveVaultKey(password, salt);
-      }
+      keyMaterial = crypto.getRandomValues(new Uint8Array(32));
+      derivedKey = await importVaultKeyMaterial(keyMaterial);
       if (!isCurrentSession()) {
         return;
       }
@@ -649,52 +673,48 @@ async function submitVault(event) {
       if (!isCurrentSession()) {
         return;
       }
-      const biometricRecord = configureBiometric
-        ? await createBiometricVaultRecord(user.uid, keyMaterial, 1)
-        : null;
-      if (!isCurrentSession()) {
-        return;
-      }
-      await firebaseClient.createVaultMetadata(user.uid, salt, verifier);
+      await firebaseClient.createVaultMetadata(user.uid, salt, verifier, keyMaterial);
       if (!isCurrentSession()) {
         return;
       }
       metadataCreated = true;
       currentVaultMetadata = {
         version: 1,
-        kdf: firebaseClient.KDF_NAME,
-        iterations: 600_000,
+        kdf: firebaseClient.RECOVERY_KEY_MODE,
+        iterations: 0,
         keyGeneration: 1,
         verifier,
         salt: btoa(String.fromCharCode(...salt)),
       };
-      if (biometricRecord) {
-        await saveBiometricVaultRecord(user.uid, biometricRecord);
-        hasBiometricVaultRecord = true;
-      }
     } else {
       const salt = firebaseClient.decodeVaultSalt(currentVaultMetadata);
-      if (configureBiometric) {
-        keyMaterial = await deriveVaultKeyMaterial(password, salt);
-        derivedKey = await importVaultKeyMaterial(keyMaterial);
-      } else {
-        derivedKey = await deriveVaultKey(password, salt);
-      }
+      keyMaterial = await deriveVaultKeyMaterial(password, salt);
+      derivedKey = await importVaultKeyMaterial(keyMaterial);
       const verifier = firebaseClient.validateVaultVerifier(currentVaultMetadata);
       if (!isCurrentSession()) {
         return;
       }
       if (!await verifyVaultKey(derivedKey, user.uid, verifier)) {
-        throw new Error("La clave de recuperación no es correcta.");
+        throw new Error("La clave antigua de la bóveda no es correcta.");
       }
-      if (configureBiometric) {
-        const keyGeneration = firebaseClient.getVaultKeyGeneration(currentVaultMetadata);
-        const biometricRecord = await createBiometricVaultRecord(user.uid, keyMaterial, keyGeneration);
-        if (!isCurrentSession()) {
-          return;
+      try {
+        await firebaseClient.saveVaultRecoveryKeyIfAbsent(
+          user.uid,
+          keyMaterial,
+          currentVaultMetadata,
+        );
+      } catch (error) {
+        if (error?.code === "vault/metadata-changed") {
+          throw error;
         }
-        await saveBiometricVaultRecord(user.uid, biometricRecord);
-        hasBiometricVaultRecord = true;
+        const code = typeof error?.code === "string" ? ` Código: ${error.code}.` : "";
+        recoveryWarning = `La bóveda se abrió, pero no se pudo activar la recuperación con Google. Conéctate y vuelve a entrar.${code}`;
+      }
+      if (!isCurrentSession()) {
+        return;
+      }
+      if (recoveryWarning) {
+        showAuthMessage(recoveryWarning);
       }
     }
 
@@ -703,22 +723,9 @@ async function submitVault(event) {
     }
     masterPasswordInput.value = "";
     masterPasswordConfirm.value = "";
-    await saveRememberedVaultKey(user.uid, derivedKey);
-    hasRememberedVaultKey = true;
-    if (!isCurrentSession()) {
-      return;
-    }
-    const pinStatus = await window.bovedaDesktop.getPinStatus(user.uid);
-    if (!isCurrentSession()) {
-      return;
-    }
-    if (pinStatus.configured && !pinResetRequested) {
-      activateVaultKey(derivedKey);
-    } else {
-      pendingPinKey = derivedKey;
-      pinResetRequested = false;
-      setVaultFormMode("pin-create");
-      pinInput.focus();
+    activateVaultKey(derivedKey);
+    if (recoveryWarning) {
+      showToast(recoveryWarning, "error");
     }
   } catch (error) {
     derivedKey = null;
@@ -1653,6 +1660,15 @@ function handleGeneratePassword() {
   }
 }
 
+function handleCopyPassword() {
+  if (!passwordInput.value) {
+    showToast("Escribe una contraseña antes de copiarla.", "error");
+    passwordInput.focus();
+    return;
+  }
+  void copyToClipboard(passwordInput.value, "Contraseña");
+}
+
 function setPasswordInputVisibility(visible) {
   window.clearTimeout(passwordVisibilityTimeout);
   passwordVisibilityTimeout = undefined;
@@ -1670,13 +1686,14 @@ document.querySelector("#detail-back").addEventListener("click", () => {
   render();
 });
 document.querySelector("#generate-password").addEventListener("click", handleGeneratePassword);
+document.querySelector("#copy-password").addEventListener("click", handleCopyPassword);
 pinRecoveryButton.addEventListener("click", () => {
   if (!currentUser || !pendingPinKey) {
     return;
   }
-  pinResetRequested = true;
+  pinResetRequested = false;
   pendingPinKey = null;
-  setVaultFormMode("unlock", "Introduce la clave de recuperación para elegir un PIN nuevo.");
+  setVaultFormMode("unlock", "Esta bóveda es anterior a la recuperación con Google. Introduce su clave antigua una vez para activar el acceso automático.");
   masterPasswordInput.focus();
 });
 passwordVisibilityButton.addEventListener("click", () => {

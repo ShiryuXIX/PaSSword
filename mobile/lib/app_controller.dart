@@ -185,8 +185,24 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
         return;
       }
       if (rawMetadata == null) {
+        final orphanedRecoveryKey = await _service!.readRecoveryKey(
+          nextUser.uid,
+        );
+        if (user?.uid != nextUser.uid) {
+          orphanedRecoveryKey?.fillRange(0, orphanedRecoveryKey.length, 0);
+          return;
+        }
+        if (orphanedRecoveryKey != null) {
+          orphanedRecoveryKey.fillRange(0, orphanedRecoveryKey.length, 0);
+          throw StateError(
+            'Se encontró una llave de recuperación sin configuración de bóveda. No se creó una bóveda nueva.',
+          );
+        }
         stage = AppStage.createVault;
         biometricAvailable = await _isBiometricAvailable();
+        if (user?.uid != nextUser.uid) {
+          return;
+        }
         notifyListeners();
         return;
       }
@@ -196,6 +212,30 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
         stage = AppStage.unlockVault;
         errorMessage = 'La bóveda se está actualizando desde otro dispositivo. Vuelve a comprobarlo en unos segundos.';
         notifyListeners();
+        return;
+      }
+
+      final recoveryKey = await _service!.readRecoveryKey(nextUser.uid);
+      if (user?.uid != nextUser.uid) {
+        recoveryKey?.fillRange(0, recoveryKey.length, 0);
+        return;
+      }
+      if (recoveryKey != null) {
+        if (!await VaultCrypto.verifyKey(
+          recoveryKey,
+          nextUser.uid,
+          metadata!,
+        )) {
+          recoveryKey.fillRange(0, recoveryKey.length, 0);
+          throw StateError(
+            'La llave de recuperación de Google no coincide con esta bóveda. No se abrió para proteger tus datos.',
+          );
+        }
+        if (user?.uid != nextUser.uid) {
+          recoveryKey.fillRange(0, recoveryKey.length, 0);
+          return;
+        }
+        _activateVault(recoveryKey);
         return;
       }
 
@@ -212,17 +252,29 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       stage = AppStage.unlockVault;
       biometricAvailable = await _isBiometricAvailable();
     } on FirebaseException catch (error) {
+      if (user?.uid != nextUser.uid) {
+        return;
+      }
       stage = AppStage.unlockVault;
       errorMessage = 'No se pudo leer la bóveda. Código: ${error.code}.';
     } on FormatException catch (error) {
+      if (user?.uid != nextUser.uid) {
+        return;
+      }
       stage = AppStage.unlockVault;
       errorMessage = error.message;
     } on PlatformException catch (error) {
+      if (user?.uid != nextUser.uid) {
+        return;
+      }
       stage = AppStage.unlockVault;
       errorMessage =
-          'No se pudo leer la llave guardada. Usa la contraseña maestra. Código: ${error.code}.';
+          'No se pudo leer la llave guardada. Revisa la conexión y vuelve a iniciar sesión. Código: ${error.code}.';
       biometricAvailable = await _isBiometricAvailable();
     } on StateError catch (error) {
+      if (user?.uid != nextUser.uid) {
+        return;
+      }
       stage = AppStage.unlockVault;
       errorMessage = error.message.toString();
     }
@@ -240,55 +292,73 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     await _handleAuthChange(activeUser, force: true);
   }
 
-  Future<void> createVault({
-    required String password,
-    required String confirmation,
-    required bool enableBiometrics,
-    required String? pin,
-  }) async {
-    if (password.length < 12) {
-      errorMessage = 'Usa una contraseña maestra de al menos 12 caracteres.';
-      notifyListeners();
-      return;
-    }
-    if (password != confirmation) {
-      errorMessage = 'Las contraseñas maestras no coinciden.';
+  Future<void> createVault() async {
+    final activeUser = user;
+    if (activeUser == null) {
+      errorMessage = 'Inicia sesión con Google antes de crear la bóveda.';
       notifyListeners();
       return;
     }
 
-    await _unlockOrCreate(
-      password: password,
-      create: true,
-      enableBiometrics: enableBiometrics,
-      pin: pin,
-    );
+    errorMessage = null;
+    stage = AppStage.loadingVault;
+    notifyListeners();
+    Uint8List? key = VaultCrypto.createVaultKey();
+    var created = false;
+    try {
+      final salt = VaultCrypto.createSalt();
+      final verifier = await VaultCrypto.createVerifier(key, activeUser.uid);
+      await _service!.createMetadata(
+        uid: activeUser.uid,
+        salt: salt,
+        verifier: verifier,
+        recoveryKey: key,
+      );
+      if (user?.uid != activeUser.uid) {
+        return;
+      }
+      metadata = VaultMetadata.fromMap({
+        'version': 1,
+        'kdf': vaultRecoveryKeyMode,
+        'iterations': 0,
+        'keyGeneration': 1,
+        'salt': base64Encode(salt),
+        'verifier': verifier,
+      });
+      created = true;
+      _activateVault(key);
+      key = null;
+    } on FirebaseException catch (error) {
+      if (user?.uid != activeUser.uid) {
+        return;
+      }
+      stage = AppStage.createVault;
+      errorMessage = 'No se pudo crear la bóveda. Código: ${error.code}.';
+    } on StateError catch (error) {
+      if (user?.uid != activeUser.uid) {
+        return;
+      }
+      stage = AppStage.createVault;
+      errorMessage = error.message.toString();
+    } finally {
+      key?.fillRange(0, key.length, 0);
+      if (!created && user?.uid == activeUser.uid) {
+        notifyListeners();
+      }
+    }
   }
 
-  Future<void> unlockWithPassword({
-    required String password,
-    required bool enableBiometrics,
-    required String? pin,
-  }) async {
+  Future<void> unlockWithPassword({required String password}) async {
     if (password.length < 12) {
-      errorMessage = 'La contraseña maestra debe tener al menos 12 caracteres.';
+      errorMessage =
+          'La clave antigua de la bóveda debe tener al menos 12 caracteres.';
       notifyListeners();
       return;
     }
-    await _unlockOrCreate(
-      password: password,
-      create: false,
-      enableBiometrics: enableBiometrics,
-      pin: pin,
-    );
+    await _unlockLegacyVault(password);
   }
 
-  Future<void> _unlockOrCreate({
-    required String password,
-    required bool create,
-    required bool enableBiometrics,
-    required String? pin,
-  }) async {
+  Future<void> _unlockLegacyVault(String password) async {
     final activeUser = user;
     if (activeUser == null) {
       errorMessage = 'Inicia sesión con Google antes de abrir la bóveda.';
@@ -300,76 +370,40 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     stage = AppStage.loadingVault;
     notifyListeners();
     Uint8List? key;
-    var metadataCreated = false;
     try {
-      if (create) {
-        final salt = VaultCrypto.createSalt();
-        key = await VaultCrypto.deriveKey(password, salt);
-        final verifier = await VaultCrypto.createVerifier(key, activeUser.uid);
-        await _service!.createMetadata(
-          uid: activeUser.uid,
-          salt: salt,
-          verifier: verifier,
-        );
-        metadataCreated = true;
-        metadata = VaultMetadata.fromMap({
-          'version': 1,
-          'kdf': vaultKdfName,
-          'iterations': vaultPbkdf2Iterations,
-          'keyGeneration': 1,
-          'salt': base64Encode(salt),
-          'verifier': verifier,
-        });
-      } else {
-        final activeMetadata = metadata;
-        if (activeMetadata == null) {
-          throw StateError('No se encontró la configuración de la bóveda.');
-        }
-        key = await VaultCrypto.deriveKey(password, activeMetadata.salt);
-        if (!await VaultCrypto.verifyKey(key, activeUser.uid, activeMetadata)) {
-          throw StateError('La contraseña maestra no es correcta.');
-        }
+      final activeMetadata = metadata;
+      if (activeMetadata == null) {
+        throw StateError('No se encontró la configuración de la bóveda.');
       }
-
-      if (enableBiometrics) {
-        if (!biometricAvailable) {
-          throw StateError(
-            'Configura huella, rostro o bloqueo de pantalla en Android para activar el desbloqueo biométrico.',
-          );
-        }
-        await _keyStore.saveKey(activeUser.uid, key, biometric: true);
-        hasBiometricKey = true;
+      key = await VaultCrypto.deriveKey(password, activeMetadata.salt);
+      if (!await VaultCrypto.verifyKey(key, activeUser.uid, activeMetadata)) {
+        throw StateError('La clave antigua no es correcta.');
       }
-      if (pin != null) {
-        await _pinStore.saveKey(activeUser.uid, key, pin);
-        hasPinKey = true;
+      final recoveryWarning = await _saveRecoveryKeyForLegacyVault(
+        activeUser,
+        key,
+        activeMetadata,
+      );
+      if (user?.uid != activeUser.uid) {
+        return;
       }
       _activateVault(key);
       key = null;
-    } on FirebaseException catch (error) {
-      stage = create && !metadataCreated
-          ? AppStage.createVault
-          : AppStage.unlockVault;
-      errorMessage = metadataCreated
-          ? 'La bóveda se creó, pero no se pudo guardar la llave local. Introdúcela para continuar. Código: ${error.code}.'
-          : 'No se pudo guardar la configuración. Código: ${error.code}.';
-    } on PlatformException catch (error) {
-      stage = create && !metadataCreated
-          ? AppStage.createVault
-          : AppStage.unlockVault;
-      errorMessage = metadataCreated
-          ? 'La bóveda se creó, pero no se pudo guardar la llave local. Introdúcela para continuar. Código: ${error.code}.'
-          : 'No se pudo guardar la llave en este dispositivo. Código: ${error.code}.';
-    } on ArgumentError catch (error) {
-      stage = create && !metadataCreated
-          ? AppStage.createVault
-          : AppStage.unlockVault;
-      errorMessage = error.message.toString();
+      if (recoveryWarning != null) {
+        errorMessage = recoveryWarning;
+      }
     } on StateError catch (error) {
-      stage = create && !metadataCreated
-          ? AppStage.createVault
-          : AppStage.unlockVault;
+      if (user?.uid != activeUser.uid) {
+        return;
+      }
+      stage = AppStage.unlockVault;
       errorMessage = error.message.toString();
+    } on FormatException catch (error) {
+      if (user?.uid != activeUser.uid) {
+        return;
+      }
+      stage = AppStage.unlockVault;
+      errorMessage = error.message;
     } finally {
       key?.fillRange(0, key.length, 0);
     }
@@ -391,19 +425,39 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       if (key == null ||
           !await VaultCrypto.verifyKey(key, activeUser.uid, activeMetadata)) {
         throw StateError(
-          'La llave biométrica no coincide con esta bóveda. Usa la contraseña maestra.',
+          'La llave biométrica no coincide con esta bóveda. Usa la clave antigua una vez para activar la recuperación con Google.',
         );
+      }
+      final recoveryWarning = await _saveRecoveryKeyForLegacyVault(
+        activeUser,
+        key,
+        activeMetadata,
+      );
+      if (user?.uid != activeUser.uid) {
+        return;
       }
       _activateVault(key);
       key = null;
+      if (recoveryWarning != null) {
+        errorMessage = recoveryWarning;
+      }
     } on PlatformException catch (error) {
+      if (user?.uid != activeUser.uid) {
+        return;
+      }
       stage = AppStage.unlockVault;
       errorMessage =
           'No se pudo confirmar la identidad en este dispositivo. Usa la contraseña maestra. Código: ${error.code}.';
     } on StateError catch (error) {
+      if (user?.uid != activeUser.uid) {
+        return;
+      }
       stage = AppStage.unlockVault;
       errorMessage = error.message.toString();
     } on FormatException catch (error) {
+      if (user?.uid != activeUser.uid) {
+        return;
+      }
       stage = AppStage.unlockVault;
       errorMessage = error.message;
     } finally {
@@ -432,24 +486,61 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       if (key == null ||
           !await VaultCrypto.verifyKey(key, activeUser.uid, activeMetadata)) {
         throw StateError(
-          'El PIN guardado no coincide con esta bóveda. Usa la recuperación con contraseña maestra.',
+          'El PIN guardado no coincide con esta bóveda. Usa la clave antigua una vez para activar la recuperación con Google.',
         );
+      }
+      final recoveryWarning = await _saveRecoveryKeyForLegacyVault(
+        activeUser,
+        key,
+        activeMetadata,
+      );
+      if (user?.uid != activeUser.uid) {
+        return;
       }
       _activateVault(key);
       key = null;
+      if (recoveryWarning != null) {
+        errorMessage = recoveryWarning;
+      }
     } on PlatformException catch (error) {
+      if (user?.uid != activeUser.uid) {
+        return;
+      }
       stage = AppStage.unlockVault;
       errorMessage = 'No se pudo leer el PIN guardado. Código: ${error.code}.';
     } on StateError catch (error) {
+      if (user?.uid != activeUser.uid) {
+        return;
+      }
       stage = AppStage.unlockVault;
       errorMessage = error.message.toString();
     } on FormatException catch (error) {
+      if (user?.uid != activeUser.uid) {
+        return;
+      }
       stage = AppStage.unlockVault;
       errorMessage = error.message;
     } finally {
       key?.fillRange(0, key.length, 0);
     }
     notifyListeners();
+  }
+
+  Future<String?> _saveRecoveryKeyForLegacyVault(
+    User activeUser,
+    Uint8List key,
+    VaultMetadata activeMetadata,
+  ) async {
+    try {
+      await _service!.saveRecoveryKeyIfAbsent(
+        activeUser.uid,
+        key,
+        expectedMetadata: activeMetadata.raw,
+      );
+      return null;
+    } on FirebaseException catch (error) {
+      return 'La bóveda se abrió, pero no se pudo activar la recuperación con Google. Conéctate y vuelve a entrar. Código: ${error.code}.';
+    }
   }
 
   Future<void> enableBiometricUnlock() async {

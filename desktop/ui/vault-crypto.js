@@ -23,6 +23,24 @@ export function decodeVaultBytes(value) {
   return decodeBase64(value);
 }
 
+export function decodeVaultRecoveryKey(document) {
+  if (
+    !document
+    || Object.keys(document).length !== 2
+    || document.version !== 1
+    || typeof document.key !== "string"
+  ) {
+    throw new Error("La llave de recuperación de Google está dañada o no es compatible.");
+  }
+
+  const key = decodeVaultBytes(document.key);
+  if (key.length !== 32) {
+    key.fill(0);
+    throw new Error("La llave de recuperación de Google tiene un tamaño no válido.");
+  }
+  return key;
+}
+
 export async function createVaultVerifier(key, ownerId) {
   validateContext(ownerId, "verifier");
   const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));

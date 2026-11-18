@@ -6,6 +6,14 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid == uid;
     }
 
+    function hasValidRecoveryKey(recoveryData) {
+      return recoveryData.keys().hasAll(['version', 'key'])
+        && recoveryData.keys().hasOnly(['version', 'key'])
+        && recoveryData.version == 1
+        && recoveryData.key is string
+        && recoveryData.key.matches('^[A-Za-z0-9+/]{43}=$');
+    }
+
     function hasValidVaultMetadata() {
       return request.resource.data.keys().hasAll([
           'version',
@@ -25,8 +33,16 @@ service cloud.firestore {
           'verifier'
         ])
         && request.resource.data.version == 1
-        && request.resource.data.kdf == 'PBKDF2-SHA-256'
-        && request.resource.data.iterations == 600000
+        && (
+          (
+            request.resource.data.kdf == 'PBKDF2-SHA-256'
+            && request.resource.data.iterations == 600000
+          )
+          || (
+            request.resource.data.kdf == 'RANDOM-AES-256'
+            && request.resource.data.iterations == 0
+          )
+        )
         && (
           !request.resource.data.keys().hasAny(['keyGeneration'])
           || (
@@ -58,48 +74,14 @@ service cloud.firestore {
         && request.resource.data.verifier.ciphertext.size() <= 512;
     }
 
-    function isRotationLockChange() {
+    function isLegacyRotationLockCleanup() {
       let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
       return hasValidVaultMetadata()
         && changedKeys.hasOnly(['rotationInProgress', 'rotationId'])
         && changedKeys.hasAny(['rotationInProgress', 'rotationId'])
-        && (
-          (
-            request.resource.data.rotationInProgress == true
-            && request.resource.data.rotationId is string
-            && request.resource.data.rotationId.size() == 36
-            && (
-              !resource.data.keys().hasAny(['rotationId'])
-              || request.resource.data.rotationId != resource.data.rotationId
-            )
-          )
-          || (
-            request.resource.data.rotationInProgress == false
-            && resource.data.rotationInProgress == true
-            && !request.resource.data.keys().hasAny(['rotationId'])
-          )
-        );
-    }
-
-    function isRotationCommit() {
-      let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
-      return hasValidVaultMetadata()
-        && request.resource.data.keyGeneration == (
-          resource.data.keys().hasAny(['keyGeneration'])
-            ? resource.data.keyGeneration
-            : 1
-        ) + 1
-        && changedKeys.hasOnly([
-          'keyGeneration',
-          'salt',
-          'verifier',
-          'rotationInProgress',
-          'rotationId'
-        ])
-        && changedKeys.hasAny(['keyGeneration', 'salt', 'verifier'])
         && resource.data.rotationInProgress == true
-        && resource.data.rotationId is string
-        && !request.resource.data.keys().hasAny(['rotationInProgress', 'rotationId']);
+        && request.resource.data.rotationInProgress == false
+        && !request.resource.data.keys().hasAny(['rotationId']);
     }
 
     function hasCurrentKeyGeneration(uid) {
@@ -152,14 +134,27 @@ service cloud.firestore {
       allow read: if isOwner(uid);
       allow create: if isOwner(uid)
         && !exists(/databases/$(database)/documents/users/$(uid)/vault/meta)
+        && existsAfter(/databases/$(database)/documents/users/$(uid)/vault/recovery)
+        && hasValidRecoveryKey(
+          getAfter(/databases/$(database)/documents/users/$(uid)/vault/recovery).data
+        )
         && hasValidVaultMetadata()
         && (
           !request.resource.data.keys().hasAny(['rotationInProgress'])
           || request.resource.data.rotationInProgress != true
         )
         && !request.resource.data.keys().hasAny(['rotationId']);
-      allow update: if isOwner(uid) && (isRotationLockChange() || isRotationCommit());
+      allow update: if isOwner(uid) && isLegacyRotationLockCleanup();
       allow delete: if false;
+    }
+
+    match /users/{uid}/vault/recovery {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid)
+        && !exists(/databases/$(database)/documents/users/$(uid)/vault/recovery)
+        && existsAfter(/databases/$(database)/documents/users/$(uid)/vault/meta)
+        && hasValidRecoveryKey(request.resource.data);
+      allow update, delete: if false;
     }
 
     match /users/{uid}/credentials/{credentialId} {

@@ -115,9 +115,9 @@ secuencia (por ejemplo, `0.2.0` para mostrar `0.2`).
 ## Límites de esta primera fase
 
 - La app de escritorio comparte el cliente Firestore y el esquema cifrado con
-  Flutter. Las bóvedas nuevas se abren al iniciar sesión con Google porque la
-  llave se recupera desde Firestore. Esto permite también al administrador del
-  proyecto recuperar la llave y los accesos.
+  Flutter. Google recupera la llave, pero cada PC exige un PIN local de 4 a 6
+  cifras antes de mostrar los accesos. Esto permite también al administrador
+  del proyecto recuperar la llave y los accesos.
 - Las bóvedas creadas antes de esta versión requieren la clave antigua una vez
   para guardar su llave de recuperación. Las llaves locales de Windows no son
   exportables y no bastan para migrar; si se perdió la clave antigua, la bóveda
@@ -125,9 +125,11 @@ secuencia (por ejemplo, `0.2.0` para mostrar `0.2`).
 - Antes de crear o migrar bóvedas, despliega las reglas actualizadas de
   Firestore desde la raíz del proyecto con `firebase deploy --only firestore:rules`.
   Si no están desplegadas, Firestore rechazará la operación.
-- En una bóveda antigua que aún no se migró, pueden aparecer sus opciones
-  locales de desbloqueo. Para activar el acceso automático en todos los
-  dispositivos, inicia sesión con la clave antigua una vez.
+- En una bóveda antigua que aún no se migró, introduce su clave antigua una
+  vez para activar la recuperación con Google y configurar el PIN de este PC.
+- «Recuperar PaSSword con Google» cierra la sesión y elimina el PIN y las llaves
+  locales de este PC; al volver a iniciar sesión se puede configurar un PIN
+  nuevo.
 - La app no se bloquea automáticamente por inactividad; usa «Cerrar sesión»
   cuando quieras terminar la sesión.
 - El SDK queda incluido en el instalador; la app solo se conecta a
@@ -146,8 +148,8 @@ secuencia (por ejemplo, `0.2.0` para mostrar `0.2`).
 - El puerto local `43183` debe estar libre. No lo cambies sin migrar antes los
   datos locales, ya que el origen aloja la sesión de Firebase y las llaves de
   IndexedDB.
-- Las opciones de PIN y biometría solo se conservan para desbloqueos locales de
-  bóvedas heredadas; las bóvedas nuevas usan el inicio con Google.
+- El menú de cuenta permite cambiar el PIN cuando ya está configurado, cerrar
+  sesión y recuperar PaSSword con Google.
 - La interfaz muestra códigos de error de OAuth/Firebase conocidos y guarda la
   fecha, la etapa del flujo, el código, el tipo genérico y, cuando existe, un
   detalle técnico limitado a códigos HTTP o de red en

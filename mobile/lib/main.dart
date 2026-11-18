@@ -207,11 +207,141 @@ class _PaSSwordAppState extends State<PaSSwordApp> {
         return _SignInScreen(controller: _controller);
       case AppStage.createVault:
         return _VaultAccessScreen(controller: _controller, create: true);
+      case AppStage.configureUnlock:
+        return _UnlockSetupScreen(controller: _controller);
       case AppStage.unlockVault:
         return _VaultAccessScreen(controller: _controller, create: false);
       case AppStage.unlocked:
         return _VaultScreen(controller: _controller);
     }
+  }
+}
+
+class _UnlockSetupScreen extends StatefulWidget {
+  const _UnlockSetupScreen({required this.controller});
+
+  final AppController controller;
+
+  @override
+  State<_UnlockSetupScreen> createState() => _UnlockSetupScreenState();
+}
+
+class _UnlockSetupScreenState extends State<_UnlockSetupScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final _pin = TextEditingController();
+  final _confirmation = TextEditingController();
+
+  @override
+  void dispose() {
+    _pin.dispose();
+    _confirmation.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+    await widget.controller.completeUnlockSetup(_pin.text);
+    if (mounted && widget.controller.isUnlocked) {
+      _pin.clear();
+      _confirmation.clear();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = widget.controller;
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 460),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const _BrandMark(size: 58),
+                    const SizedBox(height: 24),
+                    Text(
+                      'Protege PaSSword',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.headlineMedium
+                          ?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      controller.biometricAvailable
+                          ? 'Crea un PIN de respaldo y confirma tu huella o el desbloqueo del teléfono. Necesitarás Google y este método para volver a abrir PaSSword.'
+                          : 'Crea un PIN para abrir PaSSword después de iniciar sesión con Google.',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: AppTheme.muted,
+                        height: 1.5,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    TextFormField(
+                      controller: _pin,
+                      obscureText: true,
+                      keyboardType: TextInputType.number,
+                      maxLength: 6,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      decoration: const InputDecoration(
+                        labelText: 'PIN de PaSSword (4 a 6 cifras)',
+                        counterText: '',
+                        prefixIcon: Icon(Icons.pin_outlined),
+                      ),
+                      validator: (value) =>
+                          value == null || !RegExp(r'^\d{4,6}$').hasMatch(value)
+                          ? 'El PIN debe tener entre 4 y 6 cifras.'
+                          : null,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _confirmation,
+                      obscureText: true,
+                      keyboardType: TextInputType.number,
+                      maxLength: 6,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      decoration: const InputDecoration(
+                        labelText: 'Repite el PIN',
+                        counterText: '',
+                      ),
+                      validator: (value) =>
+                          value != _pin.text ? 'Los PIN no coinciden.' : null,
+                    ),
+                    if (controller.errorMessage != null) ...[
+                      const SizedBox(height: 16),
+                      _MessageBanner(message: controller.errorMessage!),
+                    ],
+                    const SizedBox(height: 20),
+                    FilledButton.icon(
+                      onPressed: controller.isBusy ? null : _submit,
+                      icon: const Icon(Icons.lock_outline),
+                      label: Text(
+                        controller.isBusy
+                            ? 'Configurando…'
+                            : controller.biometricAvailable
+                            ? 'Guardar PIN y huella'
+                            : 'Guardar PIN',
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextButton.icon(
+                      onPressed: controller.isBusy ? null : controller.signOut,
+                      icon: const Icon(Icons.logout),
+                      label: const Text('Cerrar sesión de Google'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -395,6 +525,53 @@ class _VaultAccessScreenState extends State<_VaultAccessScreen> {
     }
   }
 
+  Future<void> _recoverWithGoogle() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Recuperar PaSSword con Google'),
+        content: const Text(
+          'Se cerrará la sesión y se borrarán los métodos de desbloqueo guardados en este teléfono. Al volver a entrar con Google podrás configurarlos de nuevo. Las bóvedas antiguas que aún no activaron la recuperación seguirán necesitando su clave anterior.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Continuar'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    setState(() => _submitting = true);
+    try {
+      await widget.controller.recoverWithGoogle();
+    } on PlatformException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'No se pudo preparar la recuperación. Código: ${error.code}.',
+            ),
+          ),
+        );
+      }
+    } on MissingPluginException {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No está disponible el almacenamiento seguro.'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = widget.controller;
@@ -477,11 +654,11 @@ class _VaultAccessScreenState extends State<_VaultAccessScreen> {
                       controller: _unlockPin,
                       obscureText: true,
                       keyboardType: TextInputType.number,
-                      maxLength: 4,
+                      maxLength: 6,
                       textInputAction: TextInputAction.done,
                       onSubmitted: (_) => _unlockWithPin(),
                       decoration: const InputDecoration(
-                        labelText: 'PIN de PaSSword',
+                        labelText: 'PIN de PaSSword (4 a 6 cifras)',
                         counterText: '',
                         prefixIcon: Icon(Icons.pin_outlined),
                       ),
@@ -498,12 +675,9 @@ class _VaultAccessScreenState extends State<_VaultAccessScreen> {
                       !_showRecovery) ...[
                     const SizedBox(height: 12),
                     TextButton.icon(
-                      onPressed: () {
-                        controller.clearErrorMessage();
-                        setState(() => _showRecovery = true);
-                      },
+                      onPressed: _recoverWithGoogle,
                       icon: const Icon(Icons.key_outlined),
-                      label: const Text('Activar recuperación con Google'),
+                      label: const Text('Recuperar PaSSword con Google'),
                     ),
                   ],
                   if (controller.errorMessage != null) ...[
@@ -772,42 +946,59 @@ class _VaultScreenState extends State<_VaultScreen> {
   }
 
   Future<void> _showAccountMenu(String action) async {
-    if (action == 'forget') {
-      await widget.controller.forgetThisDevice();
-      if (mounted) {
-        _showFeedback('Se eliminaron las opciones de desbloqueo guardadas.');
-      }
-    } else if (action == 'security') {
+    if (action == 'unlockOptions') {
       await _showSecuritySettings();
-    } else if (action == 'changePassword') {
-      final hadPin = widget.controller.hasPinKey;
-      final values =
-          await showDialog<
-            ({String current, String next, String confirmation})
-          >(
-            context: context,
-            builder: (context) => const _ChangePasswordDialog(),
-          );
-      if (values == null) {
-        return;
-      }
+    } else if (action == 'recover') {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Recuperar PaSSword con Google'),
+          content: const Text(
+            'Se cerrará la sesión y se borrarán los métodos de desbloqueo guardados en este teléfono. Al volver a entrar con Google podrás configurarlos de nuevo.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Continuar'),
+            ),
+          ],
+        ),
+      );
+      if (confirm != true) return;
       try {
-        await widget.controller.changeMasterPassword(
-          currentPassword: values.current,
-          newPassword: values.next,
-          confirmation: values.confirmation,
-        );
-        if (mounted && widget.controller.errorMessage == null) {
+        await widget.controller.recoverWithGoogle();
+      } on PlatformException catch (error) {
+        if (mounted) {
           _showFeedback(
-            hadPin
-                ? 'Contraseña maestra cambiada. Configura de nuevo el PIN de PaSSword.'
-                : 'Contraseña maestra cambiada.',
+            'No se pudo preparar la recuperación. Código: ${error.code}.',
           );
+        }
+      } on MissingPluginException {
+        if (mounted) {
+          _showFeedback('No está disponible el almacenamiento seguro.');
+        }
+      }
+    } else if (action == 'changePin') {
+      final pin = await showDialog<String>(
+        context: context,
+        builder: (context) => const _ConfigurePinDialog(change: true),
+      );
+      if (pin == null) return;
+      try {
+        await widget.controller.enablePinUnlock(pin);
+        if (mounted) {
+          _showFeedback('PIN de PaSSword cambiado.');
+        }
+      } on PlatformException catch (error) {
+        if (mounted) {
+          _showFeedback('No se pudo guardar el PIN. Código: ${error.code}.');
         }
       } on StateError catch (error) {
-        if (mounted) {
-          _showFeedback(error.message.toString());
-        }
+        if (mounted) _showFeedback(error.message.toString());
       }
     } else if (action == 'signOut') {
       await widget.controller.lockAndSignOut();
@@ -909,6 +1100,26 @@ class _VaultScreenState extends State<_VaultScreen> {
             onSelected: _showAccountMenu,
             itemBuilder: (context) => [
               const PopupMenuItem(
+                value: 'unlockOptions',
+                child: Row(
+                  children: [
+                    Icon(Icons.fingerprint, size: 20),
+                    SizedBox(width: 12),
+                    Text('Elegir desbloqueo: huella o PIN'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'recover',
+                child: Row(
+                  children: [
+                    Icon(Icons.key_outlined, size: 20),
+                    SizedBox(width: 12),
+                    Text('Recuperar PaSSword con Google'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
                 value: 'signOut',
                 child: Row(
                   children: [
@@ -918,6 +1129,17 @@ class _VaultScreenState extends State<_VaultScreen> {
                   ],
                 ),
               ),
+              if (controller.hasPinKey)
+                const PopupMenuItem(
+                  value: 'changePin',
+                  child: Row(
+                    children: [
+                      Icon(Icons.pin_outlined, size: 20),
+                      SizedBox(width: 12),
+                      Text('Cambiar PIN'),
+                    ],
+                  ),
+                ),
               const PopupMenuDivider(),
               PopupMenuItem<String>(
                 enabled: false,
@@ -1286,103 +1508,6 @@ class _MessageBanner extends StatelessWidget {
   }
 }
 
-class _ChangePasswordDialog extends StatefulWidget {
-  const _ChangePasswordDialog();
-
-  @override
-  State<_ChangePasswordDialog> createState() => _ChangePasswordDialogState();
-}
-
-class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
-  final _formKey = GlobalKey<FormState>();
-  final _current = TextEditingController();
-  final _next = TextEditingController();
-  final _confirmation = TextEditingController();
-
-  @override
-  void dispose() {
-    _current.dispose();
-    _next.dispose();
-    _confirmation.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Cambiar contraseña maestra'),
-      content: Form(
-        key: _formKey,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                controller: _current,
-                obscureText: true,
-                autocorrect: false,
-                enableSuggestions: false,
-                decoration: const InputDecoration(
-                  labelText: 'Contraseña actual',
-                ),
-                validator: (value) => value == null || value.length < 12
-                    ? 'Escribe la contraseña actual.'
-                    : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _next,
-                obscureText: true,
-                autocorrect: false,
-                enableSuggestions: false,
-                decoration: const InputDecoration(
-                  labelText: 'Nueva contraseña',
-                ),
-                validator: (value) => value == null || value.length < 12
-                    ? 'Usa al menos 12 caracteres.'
-                    : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _confirmation,
-                obscureText: true,
-                autocorrect: false,
-                enableSuggestions: false,
-                decoration: const InputDecoration(
-                  labelText: 'Repite la nueva contraseña',
-                ),
-                validator: (value) =>
-                    value == null || value.isEmpty || value != _next.text
-                    ? 'Las contraseñas no coinciden.'
-                    : null,
-              ),
-            ],
-          ),
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancelar'),
-        ),
-        FilledButton(
-          onPressed: () {
-            if (!_formKey.currentState!.validate()) {
-              return;
-            }
-            Navigator.pop(context, (
-              current: _current.text,
-              next: _next.text,
-              confirmation: _confirmation.text,
-            ));
-          },
-          child: const Text('Cambiar'),
-        ),
-      ],
-    );
-  }
-}
-
 class _SecuritySettingsDialog extends StatefulWidget {
   const _SecuritySettingsDialog({required this.controller});
 
@@ -1432,7 +1557,8 @@ class _SecuritySettingsDialogState extends State<_SecuritySettingsDialog> {
   Future<void> _configurePin() async {
     final pin = await showDialog<String>(
       context: context,
-      builder: (context) => const _ConfigurePinDialog(),
+      builder: (context) =>
+          _ConfigurePinDialog(change: widget.controller.hasPinKey),
     );
     if (pin == null) {
       return;
@@ -1459,29 +1585,6 @@ class _SecuritySettingsDialogState extends State<_SecuritySettingsDialog> {
     } on ArgumentError catch (error) {
       if (mounted) {
         setState(() => _error = error.message.toString());
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _busy = false);
-      }
-    }
-  }
-
-  Future<void> _disablePin() async {
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      await widget.controller.disablePinUnlock();
-      if (mounted) {
-        setState(() {});
-      }
-    } on PlatformException catch (error) {
-      if (mounted) {
-        setState(
-          () => _error = 'No se pudo desactivar el PIN. Código: ${error.code}.',
-        );
       }
     } finally {
       if (mounted) {
@@ -1527,7 +1630,7 @@ class _SecuritySettingsDialogState extends State<_SecuritySettingsDialog> {
             subtitle: Text(
               controller.hasPinKey
                   ? 'PIN propio activado'
-                  : 'Usa un PIN de 4 cifras',
+                  : 'Necesario para recuperar el acceso en este teléfono',
             ),
             trailing: IconButton(
               tooltip: controller.hasPinKey ? 'Cambiar PIN' : 'Crear PIN',
@@ -1539,18 +1642,9 @@ class _SecuritySettingsDialogState extends State<_SecuritySettingsDialog> {
               ),
             ),
           ),
-          if (controller.hasPinKey)
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: _busy ? null : _disablePin,
-                icon: const Icon(Icons.delete_outline),
-                label: const Text('Desactivar PIN'),
-              ),
-            ),
           const SizedBox(height: 8),
           const Text(
-            'Si desactivas todas las opciones, podrás abrir la bóveda con tu contraseña maestra. Si olvidas el PIN, usa esa misma recuperación.',
+            'El PIN es obligatorio como alternativa. Si olvidas el PIN, recupera PaSSword con Google.',
             style: TextStyle(color: AppTheme.muted, height: 1.4),
           ),
           if (_error != null) ...[
@@ -1570,7 +1664,9 @@ class _SecuritySettingsDialogState extends State<_SecuritySettingsDialog> {
 }
 
 class _ConfigurePinDialog extends StatefulWidget {
-  const _ConfigurePinDialog();
+  const _ConfigurePinDialog({this.change = false});
+
+  final bool change;
 
   @override
   State<_ConfigurePinDialog> createState() => _ConfigurePinDialogState();
@@ -1591,7 +1687,9 @@ class _ConfigurePinDialogState extends State<_ConfigurePinDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Crear PIN de PaSSword'),
+      title: Text(
+        widget.change ? 'Cambiar PIN de PaSSword' : 'Crear PIN de PaSSword',
+      ),
       content: Form(
         key: _formKey,
         child: Column(
@@ -1601,15 +1699,15 @@ class _ConfigurePinDialogState extends State<_ConfigurePinDialog> {
               controller: _pin,
               obscureText: true,
               keyboardType: TextInputType.number,
-              maxLength: 4,
+              maxLength: 6,
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               decoration: const InputDecoration(
-                labelText: 'PIN de 4 cifras',
+                labelText: 'PIN de 4 a 6 cifras',
                 counterText: '',
               ),
               validator: (value) =>
-                  value == null || !RegExp(r'^\d{4}$').hasMatch(value)
-                  ? 'Escribe 4 cifras.'
+                  value == null || !RegExp(r'^\d{4,6}$').hasMatch(value)
+                  ? 'Escribe entre 4 y 6 cifras.'
                   : null,
             ),
             const SizedBox(height: 12),
@@ -1617,7 +1715,7 @@ class _ConfigurePinDialogState extends State<_ConfigurePinDialog> {
               controller: _confirmation,
               obscureText: true,
               keyboardType: TextInputType.number,
-              maxLength: 4,
+              maxLength: 6,
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               decoration: const InputDecoration(
                 labelText: 'Repite el PIN',
@@ -1629,7 +1727,7 @@ class _ConfigurePinDialogState extends State<_ConfigurePinDialog> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Si lo olvidas, podrás recuperar el acceso con la contraseña maestra.',
+              'Si lo olvidas, recupera PaSSword con Google.',
               style: TextStyle(color: AppTheme.muted, height: 1.4),
             ),
           ],

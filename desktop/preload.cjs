@@ -57,6 +57,7 @@ contextBridge.exposeInMainWorld("bovedaDesktop", Object.freeze({
   },
   getPinStatus: (userId) => invokePin("desktop:pin-status", userId),
   setPin: (userId, pin) => invokePin("desktop:set-pin", userId, pin),
+  forgetPin: (userId) => invokePin("desktop:forget-pin", userId),
   verifyPin: (userId, pin) => invokePin("desktop:verify-pin", userId, pin),
   openEmailBreachCheck: async () => {
     const result = await ipcRenderer.invoke("desktop:open-email-breach-check");

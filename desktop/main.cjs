@@ -299,6 +299,14 @@ function registerPinHandlers() {
     return { saved: true };
   });
 
+  ipcMain.handle("desktop:forget-pin", async (event, userId) => {
+    if (!isTrustedRenderer(event)) {
+      return { error: "La solicitud del PIN no está permitida." };
+    }
+    await pinStore.forgetPin(userId);
+    return { forgotten: true };
+  });
+
   ipcMain.handle("desktop:verify-pin", async (event, userId, pin) => {
     if (!isTrustedRenderer(event)) {
       return { error: "La solicitud del PIN no está permitida." };

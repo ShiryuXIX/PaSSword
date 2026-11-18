@@ -23,6 +23,7 @@ enum AppStage {
   signedOut,
   loadingVault,
   createVault,
+  configureUnlock,
   unlockVault,
   unlocked,
 }
@@ -67,6 +68,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   User? user;
   VaultMetadata? metadata;
   Uint8List? _vaultKey;
+  Uint8List? _pendingUnlockKey;
   List<VaultCredential> credentials = const [];
   AppStage stage = AppStage.starting;
   String? errorMessage;
@@ -83,6 +85,8 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
 
   bool get isUnlocked => stage == AppStage.unlocked && _vaultKey != null;
   bool get isCheckingPasswordExposure => _isCheckingPasswordExposure;
+  bool get requiresUnlockSetup =>
+      !hasPinKey || (biometricAvailable && !hasBiometricKey);
 
   void clearErrorMessage() {
     if (errorMessage == null) {
@@ -215,6 +219,19 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
         return;
       }
 
+      hasBiometricKey = await _keyStore.hasBiometricKey(nextUser.uid);
+      hasPinKey = await _pinStore.hasPin(nextUser.uid);
+      biometricAvailable = await _isBiometricAvailable();
+      await _keyStore.forgetLegacyKey(nextUser.uid);
+      if (user?.uid != nextUser.uid) {
+        return;
+      }
+      if (hasBiometricKey || hasPinKey) {
+        stage = AppStage.unlockVault;
+        notifyListeners();
+        return;
+      }
+
       final recoveryKey = await _service!.readRecoveryKey(nextUser.uid);
       if (user?.uid != nextUser.uid) {
         recoveryKey?.fillRange(0, recoveryKey.length, 0);
@@ -235,22 +252,12 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
           recoveryKey.fillRange(0, recoveryKey.length, 0);
           return;
         }
-        _activateVault(recoveryKey);
-        return;
-      }
-
-      hasBiometricKey = await _keyStore.hasBiometricKey(nextUser.uid);
-      hasPinKey = await _pinStore.hasPin(nextUser.uid);
-      await _keyStore.forgetLegacyKey(nextUser.uid);
-      if (hasBiometricKey || hasPinKey) {
-        stage = AppStage.unlockVault;
-        biometricAvailable = await _isBiometricAvailable();
-        notifyListeners();
+        _beginUnlockSetup(recoveryKey);
+        recoveryKey.fillRange(0, recoveryKey.length, 0);
         return;
       }
 
       stage = AppStage.unlockVault;
-      biometricAvailable = await _isBiometricAvailable();
     } on FirebaseException catch (error) {
       if (user?.uid != nextUser.uid) {
         return;
@@ -326,7 +333,8 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
         'verifier': verifier,
       });
       created = true;
-      _activateVault(key);
+      _beginUnlockSetup(key);
+      key.fillRange(0, key.length, 0);
       key = null;
     } on FirebaseException catch (error) {
       if (user?.uid != activeUser.uid) {
@@ -387,7 +395,11 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       if (user?.uid != activeUser.uid) {
         return;
       }
-      _activateVault(key);
+      if (requiresUnlockSetup) {
+        _beginUnlockSetup(key);
+      } else {
+        _activateVault(key);
+      }
       key = null;
       if (recoveryWarning != null) {
         errorMessage = recoveryWarning;
@@ -425,7 +437,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       if (key == null ||
           !await VaultCrypto.verifyKey(key, activeUser.uid, activeMetadata)) {
         throw StateError(
-          'La llave biométrica no coincide con esta bóveda. Usa la clave antigua una vez para activar la recuperación con Google.',
+          'La llave biométrica no coincide con esta bóveda. Recupera PaSSword con Google o usa la clave antigua si la bóveda aún no se migró.',
         );
       }
       final recoveryWarning = await _saveRecoveryKeyForLegacyVault(
@@ -436,7 +448,11 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       if (user?.uid != activeUser.uid) {
         return;
       }
-      _activateVault(key);
+      if (requiresUnlockSetup) {
+        _beginUnlockSetup(key);
+      } else {
+        _activateVault(key);
+      }
       key = null;
       if (recoveryWarning != null) {
         errorMessage = recoveryWarning;
@@ -447,7 +463,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       }
       stage = AppStage.unlockVault;
       errorMessage =
-          'No se pudo confirmar la identidad en este dispositivo. Usa la contraseña maestra. Código: ${error.code}.';
+          'No se pudo confirmar la identidad en este dispositivo. Recupera PaSSword con Google o usa la clave antigua si la bóveda aún no se migró. Código: ${error.code}.';
     } on StateError catch (error) {
       if (user?.uid != activeUser.uid) {
         return;
@@ -472,8 +488,8 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     if (activeUser == null || activeMetadata == null || !hasPinKey) {
       return;
     }
-    if (!RegExp(r'^\d{4}$').hasMatch(pin)) {
-      errorMessage = 'Escribe el PIN de PaSSword de 4 cifras.';
+    if (!RegExp(r'^\d{4,6}$').hasMatch(pin)) {
+      errorMessage = 'El PIN de PaSSword debe tener entre 4 y 6 cifras.';
       notifyListeners();
       return;
     }
@@ -486,7 +502,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       if (key == null ||
           !await VaultCrypto.verifyKey(key, activeUser.uid, activeMetadata)) {
         throw StateError(
-          'El PIN guardado no coincide con esta bóveda. Usa la clave antigua una vez para activar la recuperación con Google.',
+          'El PIN guardado no coincide con esta bóveda. Recupera PaSSword con Google o usa la clave antigua si la bóveda aún no se migró.',
         );
       }
       final recoveryWarning = await _saveRecoveryKeyForLegacyVault(
@@ -497,7 +513,11 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       if (user?.uid != activeUser.uid) {
         return;
       }
-      _activateVault(key);
+      if (requiresUnlockSetup) {
+        _beginUnlockSetup(key);
+      } else {
+        _activateVault(key);
+      }
       key = null;
       if (recoveryWarning != null) {
         errorMessage = recoveryWarning;
@@ -581,14 +601,47 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
-  Future<void> disablePinUnlock() async {
+  Future<void> completeUnlockSetup(String pin) async {
     final activeUser = user;
-    if (activeUser == null) {
-      return;
+    final pendingKey = _pendingUnlockKey;
+    if (activeUser == null || pendingKey == null || metadata == null) {
+      throw StateError('Inicia sesión con Google para configurar PaSSword.');
     }
-    await _pinStore.forgetPin(activeUser.uid);
-    hasPinKey = false;
+
+    isBusy = true;
+    errorMessage = null;
     notifyListeners();
+    try {
+      await _pinStore.saveKey(activeUser.uid, pendingKey, pin);
+      hasPinKey = true;
+      if (biometricAvailable && !hasBiometricKey) {
+        await _keyStore.saveKey(activeUser.uid, pendingKey, biometric: true);
+        hasBiometricKey = true;
+      }
+      if (user?.uid != activeUser.uid || _pendingUnlockKey != pendingKey) {
+        return;
+      }
+      final key = Uint8List.fromList(pendingKey);
+      _pendingUnlockKey = null;
+      pendingKey.fillRange(0, pendingKey.length, 0);
+      isBusy = false;
+      _activateVault(key);
+      return;
+    } on PlatformException catch (error) {
+      errorMessage =
+          'No se pudo guardar el desbloqueo seguro. Código: ${error.code}.';
+    } on MissingPluginException {
+      errorMessage = 'No está disponible el almacenamiento seguro de PaSSword.';
+    } on StateError catch (error) {
+      errorMessage = error.message.toString();
+    } on ArgumentError catch (error) {
+      errorMessage = error.message.toString();
+    } finally {
+      if (user?.uid == activeUser.uid) {
+        isBusy = false;
+      }
+      notifyListeners();
+    }
   }
 
   Future<bool> _isBiometricAvailable() async {
@@ -606,6 +659,15 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     errorMessage = null;
     _startCredentialWatch();
     _resetIdleTimer();
+    notifyListeners();
+  }
+
+  void _beginUnlockSetup(Uint8List key) {
+    _pendingUnlockKey?.fillRange(0, _pendingUnlockKey!.length, 0);
+    _pendingUnlockKey = Uint8List.fromList(key);
+    key.fillRange(0, key.length, 0);
+    stage = AppStage.configureUnlock;
+    errorMessage = null;
     notifyListeners();
   }
 
@@ -996,8 +1058,13 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     ]);
     hasBiometricKey = false;
     hasPinKey = false;
-    errorMessage = 'Se eliminó la llave guardada. La próxima vez tendrás que introducir la contraseña maestra.';
+    errorMessage = 'Se borraron los desbloqueos locales. Inicia sesión con Google para configurar PaSSword de nuevo.';
     notifyListeners();
+  }
+
+  Future<void> recoverWithGoogle() async {
+    await forgetThisDevice();
+    await signOut();
   }
 
   Future<void> signOut() async {
@@ -1033,6 +1100,9 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     final key = _vaultKey;
     key?.fillRange(0, key.length, 0);
     _vaultKey = null;
+    final pendingKey = _pendingUnlockKey;
+    pendingKey?.fillRange(0, pendingKey.length, 0);
+    _pendingUnlockKey = null;
     credentials = const [];
   }
 

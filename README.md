@@ -8,7 +8,7 @@ Gestor de contraseñas para Windows y Android. Windows usa Electron y Android us
 
 > **Prioridad actual:** mantener los clientes de escritorio y Android nativo; no desplegar una interfaz web.
 
-> **Recuperación actual:** las bóvedas nuevas guardan su llave AES en Firestore para abrirse automáticamente al iniciar sesión con Google. El administrador del proyecto Firebase también puede leer esa llave y descifrar los accesos. Las bóvedas antiguas requieren su clave actual una vez para activar esta recuperación. Antes de usar o publicar el cambio, hay que desplegar las reglas actualizadas de `desktop/ui/firestore.rules`.
+> **Recuperación actual:** las bóvedas nuevas guardan su llave AES en Firestore. Tras iniciar sesión con Google, cada dispositivo exige configurar y usar su desbloqueo local; Android pide un PIN de PaSSword de 4 a 6 cifras y, si el dispositivo lo admite, también huella/biometría. Windows exige un PIN de 4 a 6 cifras. El administrador del proyecto Firebase puede leer la llave y descifrar los accesos. Las bóvedas antiguas requieren su clave actual una vez para activar esta recuperación.
 
 ## Estructura
 

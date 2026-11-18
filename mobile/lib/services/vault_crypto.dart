@@ -300,8 +300,8 @@ class VaultCrypto {
   }
 
   static void _validatePin(String pin) {
-    if (!RegExp(r'^\d{4}$').hasMatch(pin)) {
-      throw ArgumentError('El PIN de PaSSword debe tener 4 cifras.');
+    if (!RegExp(r'^\d{4,6}$').hasMatch(pin)) {
+      throw ArgumentError('El PIN de PaSSword debe tener entre 4 y 6 cifras.');
     }
   }
 

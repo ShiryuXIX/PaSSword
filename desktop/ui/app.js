@@ -93,15 +93,16 @@ const openAuthDiagnosticsButton = document.querySelector("#open-auth-diagnostics
 const accountActions = document.querySelector("#account-actions");
 const accountMenu = document.querySelector(".account-menu");
 const forgetDeviceKeyButton = document.querySelector("#forget-device-key");
+const recoverAccessButton = document.querySelector("#recover-access");
 let firebaseClient;
 let currentUser = null;
 let currentVaultMetadata = null;
 let vaultKey = null;
 let pendingPinKey = null;
-let pinResetRequested = false;
 let vaultKeyGeneration = 1;
 let hasRememberedVaultKey = false;
 let hasBiometricVaultRecord = false;
+let hasPinConfigured = false;
 let biometricUnlockAvailable = false;
 let vaultMode = "unlock";
 let credentialsUnsubscribe = null;
@@ -145,6 +146,7 @@ async function showPinGate(key, userId = currentUser?.uid) {
   if (currentUser?.uid !== userId || vaultSessionId !== sessionId) {
     return;
   }
+  hasPinConfigured = pinStatus.configured;
   pendingPinKey = key;
   setVaultFormMode(pinStatus.configured ? "pin-unlock" : "pin-create");
   if (!pinStatus.configured) {
@@ -208,7 +210,7 @@ function setVaultFormMode(mode, message = "") {
   googleSignInButton.hidden = Boolean(currentUser);
   googleSignInButton.disabled = !firebaseClient;
   accountActions.hidden = !currentUser;
-  forgetDeviceKeyButton.hidden = !currentUser || !hasRememberedVaultKey;
+  forgetDeviceKeyButton.hidden = true;
   vaultForm.hidden = !currentUser || mode === "loading";
   const isRecoveryMode = mode === "unlock";
   const isPinMode = mode === "pin-create" || mode === "pin-unlock";
@@ -222,7 +224,7 @@ function setVaultFormMode(mode, message = "") {
   pinConfirmField.hidden = mode !== "pin-create";
   pinConfirmInput.required = mode === "pin-create";
   pinNote.hidden = !isPinMode;
-  pinRecoveryButton.hidden = mode !== "pin-unlock" && mode !== "pin-create";
+  pinRecoveryButton.hidden = mode !== "pin-unlock";
   masterPasswordNote.hidden = isPinMode || mode === "create";
   biometricOption.hidden = true;
   biometricUnlockButton.hidden = true;
@@ -235,7 +237,7 @@ function setVaultFormMode(mode, message = "") {
   if (mode === "create") {
     title.textContent = "Configura PaSSword.";
     formTitle.textContent = "Crea tu bóveda";
-    formDescription.textContent = message || "Google abrirá tu bóveda automáticamente. La llave se guardará en Firebase para poder recuperarla; el administrador del proyecto también podrá acceder a ella.";
+    formDescription.textContent = message || "Google recuperará la llave de PaSSword. Para proteger este PC, tendrás que crear un PIN antes de acceder a tus contraseñas.";
     masterPasswordInput.autocomplete = "off";
     submitText.textContent = "Crear bóveda con Google";
   } else if (mode === "unlock") {
@@ -243,14 +245,14 @@ function setVaultFormMode(mode, message = "") {
     formTitle.textContent = "Activa la recuperación con Google";
     formDescription.textContent = message;
     masterPasswordInput.autocomplete = "current-password";
-    masterPasswordNote.textContent = "En bóvedas anteriores, introduce la clave antigua una vez para guardar la llave en Firebase. Después se abrirá con Google.";
+    masterPasswordNote.textContent = "En bóvedas anteriores, introduce la clave antigua una vez para guardar la llave en Firebase. Después podrás acceder con Google y el PIN de este PC.";
     submitText.textContent = "Abrir y activar recuperación";
   } else if (mode === "pin-create") {
     title.textContent = "PaSSword";
     formTitle.textContent = "Crea tu PIN";
-    formDescription.textContent = "Elige cuatro cifras para abrir PaSSword en este PC después de iniciar sesión con Google.";
+    formDescription.textContent = "Elige un PIN de 4 a 6 cifras para abrir PaSSword en este PC después de iniciar sesión con Google.";
     masterPasswordInput.autocomplete = "current-password";
-    document.querySelector("#pin-label").textContent = "PIN de 4 cifras";
+    document.querySelector("#pin-label").textContent = "PIN de 4 a 6 cifras";
     submitText.textContent = "Guardar PIN";
   } else if (mode === "pin-unlock") {
     title.textContent = "PaSSword";
@@ -259,9 +261,7 @@ function setVaultFormMode(mode, message = "") {
     masterPasswordInput.autocomplete = "current-password";
     document.querySelector("#pin-label").textContent = "PIN";
     submitText.textContent = "Desbloquear";
-    pinRecoveryButton.textContent = "Activar recuperación con Google";
-  } else if (mode === "pin-create") {
-    pinRecoveryButton.textContent = "Activar recuperación con Google";
+    pinRecoveryButton.textContent = "Recuperar PaSSword con Google";
   } else {
     title.textContent = "PaSSword";
   }
@@ -270,13 +270,13 @@ function setVaultFormMode(mode, message = "") {
 function updateSyncStatus() {
   const label = document.querySelector("#connection-label");
   const securityStatus = document.querySelector("#security-status");
-  changePinButton.hidden = true;
+  changePinButton.hidden = !vaultKey || !hasPinConfigured;
   configureBiometricButton.hidden = true;
   securityStatus.hidden = !vaultKey;
   configureBiometricLabel.textContent = hasBiometricVaultRecord
     ? "Reconfigurar desbloqueo del dispositivo"
     : "Configurar desbloqueo del dispositivo";
-  forgetDeviceKeyButton.hidden = !currentUser || !hasRememberedVaultKey;
+  forgetDeviceKeyButton.hidden = true;
 
   let status;
   let kind = "pending";
@@ -316,7 +316,7 @@ function clearVaultState() {
   credentialsUnsubscribe = null;
   vaultKey = null;
   pendingPinKey = null;
-  pinResetRequested = false;
+  hasPinConfigured = false;
   vaultKeyGeneration = 1;
   keyRotationInProgress = false;
   credentials.length = 0;
@@ -544,7 +544,7 @@ async function handleAuthState(user) {
             if (currentUser?.uid !== user.uid) {
               return;
             }
-            activateVaultKey(recoveredKey);
+            await showPinGate(recoveredKey, user.uid);
             return;
           } finally {
             recoveryKey.fill(0);
@@ -723,7 +723,7 @@ async function submitVault(event) {
     }
     masterPasswordInput.value = "";
     masterPasswordConfirm.value = "";
-    activateVaultKey(derivedKey);
+    await showPinGate(derivedKey, user.uid);
     if (recoveryWarning) {
       showToast(recoveryWarning, "error");
     }
@@ -766,6 +766,7 @@ async function submitPin(event) {
   try {
     if (vaultMode === "pin-create") {
       await window.bovedaDesktop.setPin(userId, pin);
+      hasPinConfigured = true;
     } else {
       const result = await window.bovedaDesktop.verifyPin(userId, pin);
       if (result.retryAfterSeconds) {
@@ -1200,6 +1201,27 @@ async function signOut() {
   }
 }
 
+async function recoverAccess() {
+  const userId = currentUser?.uid;
+  if (!userId || !window.confirm(
+    "Se cerrará la sesión y se borrarán el PIN y las llaves locales de este PC. Al volver a entrar con Google podrás configurar un PIN nuevo.",
+  )) {
+    return;
+  }
+  try {
+    await Promise.all([
+      window.bovedaDesktop.forgetPin(userId),
+      forgetRememberedVaultKey(userId),
+    ]);
+    hasRememberedVaultKey = false;
+    hasBiometricVaultRecord = false;
+    hasPinConfigured = false;
+    await signOut();
+  } catch (error) {
+    showToast(error.message || "No se pudo preparar la recuperación con Google.", "error");
+  }
+}
+
 async function unlockWithBiometric() {
   if (!currentUser || !currentVaultMetadata || !hasBiometricVaultRecord) {
     return;
@@ -1226,7 +1248,17 @@ async function unlockWithBiometric() {
     if (!await verifyVaultKey(key, userId, verifier)) {
       throw new Error("La llave del dispositivo ya no coincide con PaSSword. Usa la clave de recuperación.");
     }
-    activateVaultKey(key);
+    const pinStatus = await window.bovedaDesktop.getPinStatus(userId);
+    if (currentUser?.uid !== userId || vaultSessionId !== sessionId) {
+      return;
+    }
+    hasPinConfigured = pinStatus.configured;
+    if (pinStatus.configured) {
+      activateVaultKey(key);
+    } else {
+      pendingPinKey = key;
+      setVaultFormMode("pin-create", "Añade un PIN de PaSSword para completar la configuración de este PC.");
+    }
   } catch (error) {
     if (currentUser?.uid === userId && vaultSessionId === sessionId) {
       showAuthMessage(getBiometricErrorMessage(error));
@@ -1688,13 +1720,7 @@ document.querySelector("#detail-back").addEventListener("click", () => {
 document.querySelector("#generate-password").addEventListener("click", handleGeneratePassword);
 document.querySelector("#copy-password").addEventListener("click", handleCopyPassword);
 pinRecoveryButton.addEventListener("click", () => {
-  if (!currentUser || !pendingPinKey) {
-    return;
-  }
-  pinResetRequested = false;
-  pendingPinKey = null;
-  setVaultFormMode("unlock", "Esta bóveda es anterior a la recuperación con Google. Introduce su clave antigua una vez para activar el acceso automático.");
-  masterPasswordInput.focus();
+  void recoverAccess();
 });
 passwordVisibilityButton.addEventListener("click", () => {
   setPasswordInputVisibility(passwordInput.type === "password");
@@ -1714,7 +1740,8 @@ masterPasswordForm.addEventListener("submit", changeMasterPassword);
 pinSettingsForm.addEventListener("submit", changePin);
 biometricSetupForm.addEventListener("submit", setupBiometricUnlock);
 document.querySelector("#sign-out").addEventListener("click", signOut);
-forgetDeviceKeyButton.addEventListener("click", forgetDeviceKey);
+recoverAccessButton.addEventListener("click", recoverAccess);
+forgetDeviceKeyButton?.addEventListener("click", forgetDeviceKey);
 accountMenu.addEventListener("click", (event) => {
   if (event.target.closest("button")) {
     accountMenu.open = false;

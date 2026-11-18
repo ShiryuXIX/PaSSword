@@ -6,10 +6,11 @@ antes de sincronizarlo y no depende de la web ni de Firebase Hosting.
 
 ## Estado
 
-- La interfaz nativa, el inicio con Google, la recuperación automática de la
-  llave y el cifrado compatible con Windows están implementados. Los PIN y
-  llaves biométricas que queden en instalaciones anteriores solo se mantienen
-  como opciones transitorias para bóvedas heredadas.
+- La interfaz nativa, el inicio con Google, la recuperación de la llave y el
+  cifrado compatible con Windows están implementados. Después de iniciar
+  sesión, cada dispositivo exige un PIN de PaSSword de 4 a 6 cifras y, cuando
+  Android admite autenticación biométrica, también configura huella/biometría.
+  El PIN queda como alternativa si falla la biometría.
 - Las bóvedas nuevas generan una llave aleatoria y la guardan en Firestore para
   que cada inicio de sesión de Google pueda recuperar la bóveda. Firebase y
   quienes administren el proyecto pueden acceder a esa llave y, por tanto,
@@ -45,8 +46,10 @@ antes de sincronizarlo y no depende de la web ni de Firebase Hosting.
   generar y copiar; la versión aparece al final del menú de opciones.
 - Esta consulta cubre los datos conocidos por HIBP y no equivale a rastrear
   todas las filtraciones o la dark web.
-- La bóveda se abre automáticamente tras iniciar sesión con Google cuando ya
-  tiene una llave de recuperación guardada.
+- Google recupera la llave, pero la app solicita el PIN/biometría local antes
+  de mostrar los accesos. «Recuperar PaSSword con Google» permite borrar los
+  métodos locales olvidados y volver a configurar el dispositivo tras iniciar
+  sesión de nuevo.
 - Antes de crear o migrar bóvedas, despliega las reglas actualizadas de
   Firestore desde la raíz del proyecto con `firebase deploy --only firestore:rules`.
   Si no están desplegadas, Firestore rechazará la operación.

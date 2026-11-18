@@ -68,6 +68,12 @@
                   </svg>
                   Cerrar sesión
                 </button>
+                <button class="text-button" id="recover-access" type="button">
+                  <svg viewBox="0 0 20 20" aria-hidden="true">
+                    <path d="M10 3.2a6.8 6.8 0 1 0 6.6 8.5M10 1.8v4.6m0 0 2.2-2.2M10 6.4 7.8 4.2M13.5 10.1h3.2v3.2M16.7 10.1l-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  Recuperar PaSSword con Google
+                </button>
                 <span class="account-menu-version" id="version-label">PaSSword 0.2</span>
               </div>
             </details>
@@ -113,12 +119,12 @@
                 <input id="master-password-confirm" type="password" required minlength="12" maxlength="1024" autocomplete="new-password" spellcheck="false">
               </label>
               <label class="field" id="pin-field" hidden>
-                <span id="pin-label">PIN de 4 cifras</span>
-                <input id="pin-input" type="password" inputmode="numeric" pattern="[0-9]{4}" required maxlength="4" autocomplete="one-time-code" spellcheck="false">
+                <span id="pin-label">PIN de 4 a 6 cifras</span>
+                <input id="pin-input" type="password" inputmode="numeric" pattern="[0-9]{4,6}" required maxlength="6" autocomplete="one-time-code" spellcheck="false">
               </label>
               <label class="field" id="pin-confirm-field" hidden>
                 <span>Repite el PIN</span>
-                <input id="pin-confirm-input" type="password" inputmode="numeric" pattern="[0-9]{4}" required maxlength="4" autocomplete="one-time-code" spellcheck="false">
+                <input id="pin-confirm-input" type="password" inputmode="numeric" pattern="[0-9]{4,6}" required maxlength="6" autocomplete="one-time-code" spellcheck="false">
               </label>
               <label class="biometric-option" id="biometric-option" hidden>
                 <input id="enable-biometric" type="checkbox">
@@ -135,7 +141,7 @@
               </p>
               <button class="button button-primary vault-submit" id="vault-submit" type="submit">Desbloquear</button>
               <button class="text-button pin-recovery-button" id="pin-recovery" type="button" hidden>
-                Activar recuperación con Google
+                Recuperar PaSSword con Google
               </button>
               <button class="button button-quiet biometric-unlock" id="biometric-unlock" type="button" hidden>
                 Desbloquear con el dispositivo
@@ -326,15 +332,15 @@
         </p>
         <label class="field">
           <span>PIN actual</span>
-          <input id="current-pin-input" type="password" inputmode="numeric" pattern="[0-9]{4}" required maxlength="4" autocomplete="current-password" spellcheck="false">
+          <input id="current-pin-input" type="password" inputmode="numeric" pattern="[0-9]{4,6}" required maxlength="6" autocomplete="current-password" spellcheck="false">
         </label>
         <label class="field">
-          <span>Nuevo PIN de 4 cifras</span>
-          <input id="new-pin-input" type="password" inputmode="numeric" pattern="[0-9]{4}" required maxlength="4" autocomplete="new-password" spellcheck="false">
+          <span>Nuevo PIN (4 a 6 cifras)</span>
+          <input id="new-pin-input" type="password" inputmode="numeric" pattern="[0-9]{4,6}" required maxlength="6" autocomplete="new-password" spellcheck="false">
         </label>
         <label class="field">
           <span>Repite el nuevo PIN</span>
-          <input id="confirm-pin-input" type="password" inputmode="numeric" pattern="[0-9]{4}" required maxlength="4" autocomplete="new-password" spellcheck="false">
+          <input id="confirm-pin-input" type="password" inputmode="numeric" pattern="[0-9]{4,6}" required maxlength="6" autocomplete="new-password" spellcheck="false">
         </label>
         <p class="form-error" id="pin-settings-error" role="alert" hidden></p>
         <div class="dialog-actions">

@@ -2,7 +2,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 
-const PIN_PATTERN = /^\d{4}$/;
+const PIN_PATTERN = /^\d{4,6}$/;
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_MS = 30_000;
 
@@ -57,6 +57,21 @@ function createPinStore({ filePath, safeStorage, now = Date.now }) {
   return Object.freeze({
     async hasPin(userId) {
       return (await readPin(userId)) !== null;
+    },
+
+    async forgetPin(userId) {
+      if (await readPin(userId) === null) {
+        return;
+      }
+      try {
+        await fs.unlink(filePath);
+      } catch (error) {
+        if (error.code !== "ENOENT") {
+          throw error;
+        }
+      }
+      failedAttempts = 0;
+      lockedUntil = 0;
     },
 
     async setPin(userId, pin) {
@@ -132,7 +147,7 @@ function validateUserId(userId) {
 
 function validatePin(pin) {
   if (typeof pin !== "string" || !PIN_PATTERN.test(pin)) {
-    throw new TypeError("El PIN debe tener exactamente cuatro cifras.");
+    throw new TypeError("El PIN debe tener entre cuatro y seis cifras.");
   }
 }
 
